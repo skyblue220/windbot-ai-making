@@ -22,6 +22,7 @@
     <Compile Include="../ExecutorBase/Game\AI\Enums\*.cs" />
     <Compile Include="../ExecutorBase/Game\AI\Executor.cs" />
     <Compile Include="../ExecutorBase/Game\AI\HintMsg.cs" />
+    <Compile Include="../ExecutorBase/Game\AI\IMainPhaseDecisionObserver.cs" />
     <Compile Include="../ExecutorBase/Game\AI\Opcodes.cs" />
     <Compile Include="../ExecutorBase/Game\AI\ExecutorType.cs" />
     <Compile Include="../ExecutorBase/Game\AI\Zones.cs" />

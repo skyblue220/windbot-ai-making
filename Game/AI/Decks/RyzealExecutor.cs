@@ -1327,6 +1327,11 @@ namespace WindBot.Game.AI.Decks
             _decisionLogger.WriteLegacyAction(Duel.Turn, Duel.Phase.ToString(), kind, cardId, description);
         }
 
+        public void ObservePrompt(string kind, int cardId, long description, bool answer)
+        {
+            _decisionLogger.WritePrompt(Duel.Turn, Duel.Phase.ToString(), kind, cardId, description, answer);
+        }
+
         public override bool TryGetMainPhaseAction(MainPhase main, out MainPhaseAction action)
         {
             action = null;

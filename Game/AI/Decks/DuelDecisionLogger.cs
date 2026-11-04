@@ -90,6 +90,20 @@ namespace RyzealAI.Prototype
             }
         }
 
+        public void WritePrompt(int turn, string phase, string kind, int cardId, long description, bool answer)
+        {
+            string json = "{" + Field("eventType", "prompt") + "," + CorrelationJson(false) + "," +
+                Field("turn", turn) + "," + Field("phase", phase) + "," +
+                Field("kind", kind) + "," + Field("cardId", cardId) + "," +
+                Field("activationDescription", description) + "," + Field("answer", answer) + "}";
+            lock (_gate)
+            {
+                try { File.AppendAllText(_path, json + Environment.NewLine, Encoding.UTF8); }
+                catch (IOException ex) { Console.Error.WriteLine("Ryzeal prompt log failed: " + ex.Message); }
+                catch (UnauthorizedAccessException ex) { Console.Error.WriteLine("Ryzeal prompt log access failed: " + ex.Message); }
+            }
+        }
+
         public void WriteSelection(string context, int turn, IEnumerable<int> offered, int selected)
         {
             string json = "{" + Field("eventType", "cardSelection") + "," + CorrelationJson(false) + "," +

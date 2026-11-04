@@ -463,12 +463,18 @@ namespace WindBot.Game
         /// <returns>True for yes, false for no.</returns>
         public bool OnSelectEffectYn(ClientCard card, long desc)
         {
+            bool answer = false;
             foreach (CardExecutor exec in Executor.Executors)
             {
                 if (ShouldExecute(exec, card, ExecutorType.Activate, desc))
-                    return true;
+                {
+                    answer = true;
+                    break;
+                }
             }
-            return false;
+            var observer = Executor as IMainPhaseDecisionObserver;
+            if (observer != null) observer.ObservePrompt("EffectYn", card == null ? 0 : card.Id, desc, answer);
+            return answer;
         }
 
         /// <summary>
@@ -824,9 +830,14 @@ namespace WindBot.Game
         /// <returns>True for yes, false for no.</returns>
         public bool OnSelectYesNo(long desc)
         {
+            bool answer;
             if (m_yesno != -1)
-                return m_yesno > 0;
-            return Executor.OnSelectYesNo(desc);
+                answer = m_yesno > 0;
+            else
+                answer = Executor.OnSelectYesNo(desc);
+            var observer = Executor as IMainPhaseDecisionObserver;
+            if (observer != null) observer.ObservePrompt("YesNo", 0, desc, answer);
+            return answer;
         }
 
         /// <summary>

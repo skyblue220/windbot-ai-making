@@ -5,5 +5,7 @@ namespace WindBot.Game.AI
     {
         void ObserveDuelStart();
         void ObserveLegacyMainPhaseAction(string kind, int cardId, long description);
+        // kind: "EffectYn" (SelectEffectYn) or "YesNo" (SelectYesNo). cardId is 0 for YesNo.
+        void ObservePrompt(string kind, int cardId, long description, bool answer);
     }
 }
