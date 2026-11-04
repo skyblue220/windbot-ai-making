@@ -1,0 +1,5 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<PropertyGroup><OutputType>Library</OutputType><TargetFrameworkVersion>v4.0</TargetFrameworkVersion><AssemblyName>RyzealResearchProbe</AssemblyName><OutputPath>bin\Release\</OutputPath></PropertyGroup>
+<ItemGroup><Reference Include="System"/><Reference Include="System.Core"/><Reference Include="ExecutorBase"><HintPath>..\..\ExecutorBase.dll</HintPath><Private>False</Private></Reference><Compile Include="RyzealProbe.cs"/></ItemGroup>
+<Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
+</Project>

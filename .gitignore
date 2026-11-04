@@ -1,0 +1,18 @@
+# Track only our own files; everything else (EDOPro install, assets, binaries) is ignored.
+/*
+!/.gitignore
+!/README.md
+!/Ryzeal-card-scripts/
+!/Windbot/
+/Windbot/*
+!/Windbot/bots.json
+!/Windbot/RyzealIntegration/
+!/Windbot/Decks/
+/Windbot/Decks/*
+!/Windbot/Decks/AI_Ryzeal.ydk
+# build outputs inside tracked folders
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
