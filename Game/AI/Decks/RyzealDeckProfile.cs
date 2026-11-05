@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace RyzealAI.Prototype
 {
-    // Single source of truth for AI_Ryzeal - 복사본.txt (40 main / 15 extra).
+    // Mirrors Decks/AI_Ryzeal.ydk (canonical source: ProjectIgnis/deck/AI_Ryzeal.ydk; 40 main / 15 extra).
     // This is deck composition metadata only; the duel engine remains the authority
     // for current in-duel availability and legal actions.
     public static class RyzealDeckProfile
