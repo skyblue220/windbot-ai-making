@@ -19,6 +19,17 @@ namespace WindBot.Agent
                 string script = Path.GetFullPath(Path.Combine(baseDir, "script"));
                 if (Directory.Exists(script) && !roots.Contains(script)) roots.Add(script);
             }
+            // Downloaded card repositories (e.g. repositories/delta-bagooska/script) hold scripts of newer cards.
+            foreach (string baseDir in new[] { ".", "..", Path.Combine(Program.AssetPath ?? "", "..") })
+            {
+                string repos = Path.GetFullPath(Path.Combine(baseDir, "repositories"));
+                if (!Directory.Exists(repos)) continue;
+                foreach (string repo in Directory.GetDirectories(repos))
+                {
+                    string script = Path.Combine(repo, "script");
+                    if (Directory.Exists(script) && !roots.Contains(script)) roots.Add(script);
+                }
+            }
             return roots;
         }
 
@@ -112,6 +123,8 @@ namespace WindBot.Agent
         public bool NormalSummonAvailable { get; set; }
 
         public StaticZoneView() { NormalSummonAvailable = true; }
+        public int Materials { get; set; }
+        public int FieldMaterials() { return Materials; }
 
         public void Add(string zone, int id)
         {

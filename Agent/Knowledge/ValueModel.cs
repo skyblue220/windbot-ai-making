@@ -96,6 +96,8 @@ namespace WindBot.Agent.Knowledge
         int Grave(int cardId);
         int Banished(int cardId);
         bool NormalSummonAvailable { get; }
+        /// <summary>Total Xyz materials attached to our monsters.</summary>
+        int FieldMaterials();
         /// <summary>Any own card in the given zones matches the predicate (used for summon conditions).</summary>
         bool AnyOwn(string zones, Func<int, bool> match);
     }
@@ -280,6 +282,7 @@ namespace WindBot.Agent.Knowledge
             if (step >= _w.MaxSteps || --ctx.Budget < 0) return result;
             if (ctx.UsedKeys.Contains(e.UsageKey)) return result;
             if (!HasTargets(e, ctx)) return result; // e.g. "special summon from grave" with nothing in the grave: cannot be activated
+            if (e.DetachCount > ctx.Zones.FieldMaterials()) return result; // e.g. Star's rule summon needs a material to detach
             ctx.UsedKeys.Add(e.UsageKey);
 
             double discount = Math.Pow(_w.Gamma, step);
@@ -343,6 +346,12 @@ namespace WindBot.Agent.Knowledge
                 functions.Add(KoreanOf(f));
             }
             if (bestBring != null) { v += _w.BaseOf(bestBring); functions.Insert(0, KoreanOf(bestBring)); }
+            else if (e.Categories.Contains("SEARCH") && seen.Add("search"))
+            {
+                // Adds a card to hand but the pick was not readable (e.g. excavate then add): count the search value, no chain.
+                v += _w.BaseOf("search");
+                functions.Insert(0, "서치(분류 기준)");
+            }
             if (e.Categories.Contains("DRAW") && seen.Add("draw")) { v += _w.BaseOf("draw"); functions.Add("드로우"); }
             if ((e.Categories.Contains("DESTROY") || e.Categories.Contains("DISABLE") || e.Categories.Contains("NEGATE")) && seen.Add("destroy_or_negate"))
             { v += _w.BaseOf("destroy_or_negate"); functions.Add("파괴/무효"); }
@@ -354,7 +363,7 @@ namespace WindBot.Agent.Knowledge
                 if (l.Relation.Contains("엑스트라 덱에서 묘지로")) { v += _w.BaseOf("cost_extra_to_grave"); functions.Add("코스트(엑스트라→묘지)"); }
                 else if (l.Relation.Contains("묘지로")) { double c = CheapestFodder(card, ctx); v -= c; functions.Add("코스트(패/필드→묘지 " + c.ToString("0.#", CultureInfo.InvariantCulture) + ")"); }
             }
-            if (e.Unresolved.Any(u => u.Contains("Detach"))) { v += _w.BaseOf("cost_detach"); functions.Add("코스트(소재 제거)"); }
+            if (e.DetachCount > 0) { v += e.DetachCount * _w.BaseOf("cost_detach"); functions.Add("소재 제거 " + e.DetachCount); }
 
             function = functions.Count > 0 ? String.Join("+", functions.ToArray()) : "기능 미분류";
             return v;

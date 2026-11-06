@@ -72,6 +72,8 @@ namespace WindBot.Agent.Knowledge
         public CountLimit Limit;
         /// <summary>Usage counter key: the count-limit key when there is one, otherwise unique to this card's effect.</summary>
         public string UsageKey;
+        /// <summary>Xyz materials this effect removes from our field (cost or resolution). Requires that many materials.</summary>
+        public int DetachCount;
         public readonly List<CardLink> Links = new List<CardLink>();
         public readonly List<string> Unresolved = new List<string>();
         public string Confidence = "inferred";
@@ -274,6 +276,7 @@ namespace WindBot.Agent.Knowledge
                 e.Range = def.RangeExpr != null ? String.Join("|", Names(def.RangeExpr, "LOCATION_").ToArray()) : null;
                 e.Limit = ReadCountLimit(def, c.Data.Id);
                 e.UsageKey = e.Limit != null ? e.Limit.Key : "card" + c.Data.Id + ":effect" + e.Index;
+                e.DetachCount = s.DetachCount(def.Condition, def.Cost, def.Target, def.Operation);
 
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
@@ -404,6 +407,10 @@ namespace WindBot.Agent.Knowledge
 
         private static string ActionFor(LuaScript s, Selection sel, string actionFunction)
         {
+            // 0) an Extra Deck pick that is later special summoned (materials overlaid onto it first, e.g. Dark Rebellion)
+            if (sel.SelfLocation.Contains("LOCATION_EXTRA"))
+                foreach (var a in s.ActionCalls(sel.Function))
+                    if (a.Key > sel.Index && a.Value == "SpecialSummon") return a.Value;
             // 1) a card-moving call after the pick in the same function
             foreach (var a in s.ActionCalls(sel.Function))
                 if (a.Key > sel.Index) return a.Value;
@@ -418,6 +425,12 @@ namespace WindBot.Agent.Knowledge
 
         private string Relation(bool cost, List<string> calls, string loc, EffectEntry e)
         {
+            if (calls.Count == 1 && calls[0] == "ConfirmCards") return (cost ? "코스트: " : "") + LocKo(loc) + "의 카드를 공개";
+            if (calls.Count == 1 && (calls[0] == "XyzSummon" || calls[0] == "SynchroSummon" || calls[0] == "LinkSummon"))
+            {
+                string kind = calls[0] == "XyzSummon" ? "엑시즈" : calls[0] == "SynchroSummon" ? "싱크로" : "링크";
+                return loc == "EXTRA" ? "엑스트라 덱에서 " + kind + " 소환" : LocKo(loc) + "의 카드를 소재로 " + kind + " 소환";
+            }
             List<string> actions = new List<string>(calls);
             if (!actions.Any(IsAction)) actions.AddRange(e.Categories.Select(x => "CATEGORY_" + x));
             string prefix = cost ? "코스트: " : "";
@@ -489,7 +502,7 @@ namespace WindBot.Agent.Knowledge
                     }
                     l.AnyCard = !l.Filter.Predicates.Any(p => StaticMethods.Contains(p.Method));
                     if (l.AnyCard) continue;
-                    bool monstersOnly = l.Relation.Contains("특수 소환");
+                    bool monstersOnly = l.Relation.Contains("특수 소환") || l.Location == "MZONE";
                     foreach (int id in Candidates(l.Location))
                         if ((!monstersOnly || IsMonster(Cards[id].Data)) && Matches(Cards[id], l.Filter, c.Data.Id))
                         {
@@ -844,6 +857,7 @@ namespace WindBot.Agent.Knowledge
                     if (!String.IsNullOrEmpty(e.Label)) sb.AppendLine("  - 설명: " + e.Label);
                     if (e.Categories.Count > 0) sb.AppendLine("  - 분류: " + String.Join(", ", e.Categories.ToArray()));
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " (OATH: 발동 시 소비)" : " (처리 시 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
+                    if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
                     foreach (CardLink l in e.Links)
                         sb.AppendLine("  - " + RoleKo(l.Role) + ": " + l.Relation + FilterText(l.Filter)
                             + (l.Opponent ? " → 상대 카드"

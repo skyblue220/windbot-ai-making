@@ -366,8 +366,33 @@ namespace WindBot.Agent.Knowledge
 
         private static readonly HashSet<string> ActionNames = new HashSet<string>
         {
-            "SpecialSummon", "SendtoHand", "Overlay", "SSet", "Destroy", "SendtoGrave", "SendtoDeck", "Remove", "Release", "Draw"
+            "SpecialSummon", "SendtoHand", "Overlay", "SSet", "Destroy", "SendtoGrave", "SendtoDeck", "Remove", "Release", "Draw",
+            "ConfirmCards", "XyzSummon", "SynchroSummon", "LinkSummon"
         };
+
+        private static readonly Regex DetachCall = new Regex(@"(?:Check)?RemoveOverlayCard\(\s*\w+\s*,\s*\d+\s*,\s*\d+\s*,\s*(\d+)", RegexOptions.Compiled);
+        private static readonly Regex CostDetach = new Regex(@"Cost\.Detach\(\s*(\d+)", RegexOptions.Compiled);
+
+        /// <summary>Xyz materials the effect removes (as cost or as part of resolution), 0 when none.</summary>
+        public int DetachCount(params string[] functions)
+        {
+            int n = 0;
+            foreach (string f in functions)
+            {
+                if (f == null) continue;
+                if (f.StartsWith("(inline)"))
+                {
+                    Match c = CostDetach.Match(f);
+                    if (c.Success) n = Math.Max(n, int.Parse(c.Groups[1].Value, CultureInfo.InvariantCulture));
+                    continue;
+                }
+                string body = ExpandedBody(f);
+                if (body == null) continue;
+                foreach (Match m in DetachCall.Matches(body))
+                    n = Math.Max(n, int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
+            }
+            return n;
+        }
 
         /// <summary>Card-moving Duel calls in a function body (not expanded), in order of appearance.</summary>
         public List<KeyValuePair<int, string>> ActionCalls(string function)
@@ -402,6 +427,9 @@ namespace WindBot.Agent.Knowledge
             FilterInfo info = new FilterInfo();
             info.Raw = filterExpr;
             if (String.IsNullOrEmpty(filterExpr) || filterExpr == "nil" || filterExpr == "aux.TRUE") return info;
+            // aux.NecroValleyFilter(f) only adds a field-spell check; the card condition is f.
+            Match nv = Regex.Match(filterExpr, @"^aux\.NecroValleyFilter\((.+)\)$");
+            if (nv.Success) filterExpr = nv.Groups[1].Value.Trim();
             if (filterExpr.StartsWith("Card.Is"))
             {
                 info.Predicates.Add(new Predicate { Method = filterExpr.Substring(5) });

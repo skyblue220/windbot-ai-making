@@ -21,6 +21,15 @@ namespace WindBot.Agent
 
         public bool NormalSummonAvailable { get { return !_db.NormalSummonUsed; } }
 
+        public int FieldMaterials()
+        {
+            int n = 0;
+            if (Self != null && Self.MonsterZone != null)
+                foreach (ClientCard c in Self.MonsterZone)
+                    if (c != null && c.Overlays != null) n += c.Overlays.Count;
+            return n;
+        }
+
         public int Hand(int id) { return Self == null ? 0 : Count(Self.Hand, id); }
         public int Field(int id) { return Self == null ? 0 : Count(Self.MonsterZone, id) + Count(Self.SpellZone, id); }
         public int Grave(int id) { return Self == null ? 0 : Count(Self.Graveyard, id); }
