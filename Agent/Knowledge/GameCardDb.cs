@@ -76,6 +76,10 @@ namespace WindBot.Agent.Knowledge
         public int DetachCount;
         /// <summary>The resolution forbids normal summoning the added card (e.g. Lightning Crash: EFFECT_CANNOT_SUMMON).</summary>
         public bool BlocksNormalSummonOfAdded;
+        /// <summary>Condition requires our field to be empty (Mulcharmy; Impermanence's hand activation).</summary>
+        public bool RequiresEmptyField;
+        /// <summary>The monster this effect summons has its effects negated (e.g. Node: "효과를 무효로 하고").</summary>
+        public bool SummonsNegated;
         public readonly List<CardLink> Links = new List<CardLink>();
         public readonly List<string> Unresolved = new List<string>();
         public string Confidence = "inferred";
@@ -90,6 +94,9 @@ namespace WindBot.Agent.Knowledge
         public bool Opponent;
         public bool ScriptFound;
         public string ScriptPath;
+        /// <summary>A trap that can be activated from the hand (Infinite Impermanence), and whether that needs our field empty.</summary>
+        public bool TrapActInHand;
+        public bool TrapActInHandNeedsEmptyField;
         public readonly List<EffectEntry> Effects = new List<EffectEntry>();
         public CardLink Material;
         /// <summary>Incoming links: (card id, effect index or 0 for material, relation).</summary>
@@ -280,6 +287,15 @@ namespace WindBot.Agent.Knowledge
                 e.UsageKey = e.Limit != null ? e.Limit.Key : "card" + c.Data.Id + ":effect" + e.Index;
                 e.DetachCount = s.DetachCount(def.Condition, def.Cost, def.Target, def.Operation);
                 e.BlocksNormalSummonOfAdded = def.Operation != null && s.Mentions(def.Operation, "EFFECT_CANNOT_SUMMON");
+                string cond = def.Condition == null ? "" : def.Condition.StartsWith("(inline)") ? def.Condition : (s.ExpandedBody(def.Condition) ?? "");
+                e.RequiresEmptyField = cond.Contains("LOCATION_ONFIELD,0)==0");
+                e.SummonsNegated = def.Operation != null && !def.Operation.StartsWith("(inline)")
+                                   && (s.Mentions(def.Operation, "NegateEffects") || s.Mentions(def.Operation, "EFFECT_DISABLE"));
+                if (def.CodeExpr != null && def.CodeExpr.Contains("EFFECT_TRAP_ACT_IN_HAND"))
+                {
+                    c.TrapActInHand = true;
+                    c.TrapActInHandNeedsEmptyField = cond.Contains("LOCATION_ONFIELD,0)==0");
+                }
 
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
@@ -503,7 +519,8 @@ namespace WindBot.Agent.Knowledge
                         if (!e.Unresolved.Contains("filter " + l.Filter.Raw)) e.Unresolved.Add("filter " + l.Filter.Raw);
                         continue;
                     }
-                    l.AnyCard = !l.Filter.Predicates.Any(p => StaticMethods.Contains(p.Method));
+                    l.AnyCard = !l.Filter.Predicates.Any(p => StaticMethods.Contains(p.Method))
+                                && !l.Filter.Groups.Any(g => g.Items.All(p => StaticMethods.Contains(p.Method)));
                     if (l.AnyCard) continue;
                     bool monstersOnly = l.Relation.Contains("특수 소환") || l.Location == "MZONE";
                     foreach (int id in Candidates(l.Location))
@@ -572,6 +589,19 @@ namespace WindBot.Agent.Knowledge
                 bool? r = Evaluate(d, p, selfId);
                 if (r == null) continue;
                 if (r.Value == p.Negated) return false;
+            }
+            foreach (PredicateGroup g in f.Groups)
+            {
+                // OR over the items; runtime-only items are unknown and make the group count as satisfied.
+                bool any = false, unknown = false;
+                foreach (Predicate p in g.Items)
+                {
+                    bool? r = Evaluate(d, p, selfId);
+                    if (r == null) { unknown = true; continue; }
+                    if (r.Value != p.Negated) { any = true; break; }
+                }
+                if (unknown && !any) continue;
+                if (any == g.Negated) return false;
             }
             return true;
         }
@@ -948,6 +978,7 @@ namespace WindBot.Agent.Knowledge
             if (f == null) return "";
             if (f.Partial) return " [원문: " + f.Raw + "]";
             List<string> parts = f.Predicates.Select(p => p.ToString()).ToList();
+            parts.AddRange(f.Groups.Select(g => g.ToString()));
             return parts.Count > 0 ? " [조건: " + String.Join(" and ", parts.ToArray()) + "]" : "";
         }
 

@@ -39,6 +39,7 @@ namespace WindBot.Agent
         private Deck _deckList;
         private GameCardDb _db;
         private ValueModel _values;
+        private TurnPlanner _planner;
         private DuelZoneView _zones;
         private int _pendingRuleSummon;
 
@@ -77,6 +78,7 @@ namespace WindBot.Agent
             {
                 _db = CardDbFactory.Build(_deckList);
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
+                _planner = new TurnPlanner(_db, _values.Weights);
                 _zones = new DuelZoneView(_duel, _db);
                 WriteCardDb();
             }
@@ -116,6 +118,7 @@ namespace WindBot.Agent
                     System.IO.File.WriteAllText(path, "# 듀얼 상태 기록\n\n", new UTF8Encoding(false));
                 string text = _db.DescribeState(title, InstancesOf);
                 if (_values != null) text += "### 패 카드 가치 (유한 등비 합)\n" + CardDbFactory.DescribeValues(_db, _values, _zones);
+                if (_planner != null) text += "### 지금 필드의 방해와 이 상태에서의 최선 계획\n" + CardDbFactory.DescribePlan(_planner, _zones) + "\n";
                 System.IO.File.AppendAllText(path, text, new UTF8Encoding(false));
             }
             catch (Exception ex)
@@ -155,12 +158,63 @@ namespace WindBot.Agent
             return n;
         }
 
+        /// <summary>Best planned outcome when this main-phase option is taken first.</summary>
+        private PlanResult PlanFor(DecisionOption o, List<PlanResult> byFirst, PlanResult stop)
+        {
+            if (o.Action == "ToEndPhase") return stop;
+            string kind = null;
+            int effectIndex = 0;
+            switch (o.Action)
+            {
+                case "Summon": kind = "ns"; break;
+                case "SpSummon": kind = o.Location == (int)CardLocation.Hand ? "rule" : o.Location == (int)CardLocation.Extra ? "xyz" : null; break;
+                case "Activate":
+                    {
+                        CardEntry c = _db.Get(o.CardId);
+                        EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
+                        effectIndex = e != null ? e.Index : 0;
+                        kind = o.Location == (int)CardLocation.Hand ? "spell" : o.Location == (int)CardLocation.MonsterZone ? "ignition" : null;
+                        break;
+                    }
+            }
+            if (kind == null) return null;
+            PlanResult best = null;
+            foreach (PlanResult p in byFirst)
+            {
+                PlanMove m = p.Moves.Count > 0 ? p.Moves[0] : null;
+                if (m == null || m.Kind != kind || m.CardId != o.CardId) continue;
+                if (effectIndex != 0 && m.EffectIndex != 0 && m.EffectIndex != effectIndex) continue;
+                if (best == null || p.Value > best.Value) best = p;
+            }
+            return best;
+        }
+
         /// <summary>Attaches card-DB knowledge to each option so the policy (and the log) sees it.</summary>
         private void Annotate(DecisionRequest r)
         {
             if (_db == null) return;
+
+            // Main phase on our turn: plan the rest of the turn once, then read each option's best plan.
+            List<PlanResult> byFirst = null;
+            PlanResult stop = null;
+            if (r.Kind == RequestKind.Idle && _planner != null && _duel.Player == 0)
+            {
+                try { _planner.Plan(_zones.Snapshot(), out byFirst, out stop); }
+                catch (Exception ex) { _log.Error("planner", ex.ToString()); byFirst = null; }
+            }
+
             foreach (DecisionOption o in r.Options)
             {
+                if (byFirst != null)
+                {
+                    PlanResult p = PlanFor(o, byFirst, stop);
+                    if (p != null)
+                    {
+                        o.Estimate = p.Value;
+                        o.Info = (o.CardId != 0 ? (_db.Get(o.CardId) != null ? _db.Get(o.CardId).Data.Name : "") + " | " : "") + "계획 " + p.Describe();
+                        continue;
+                    }
+                }
                 if (o.CardId == 0) continue;
                 CardEntry card = _db.EnsureCard(o.CardId, o.Controller == 1);
                 if (card == null) continue;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -136,9 +137,21 @@ namespace WindBot.Agent.Knowledge
         }
     }
 
+    /// <summary>"(c:IsA(x) or c:IsB(y))" — true when any item is true; Negated for "not (...)".</summary>
+    public sealed class PredicateGroup
+    {
+        public readonly List<Predicate> Items = new List<Predicate>();
+        public bool Negated;
+        public override string ToString()
+        {
+            return (Negated ? "not " : "") + "(" + String.Join(" or ", Items.Select(i => i.ToString()).ToArray()) + ")";
+        }
+    }
+
     public sealed class FilterInfo
     {
         public readonly List<Predicate> Predicates = new List<Predicate>();
+        public readonly List<PredicateGroup> Groups = new List<PredicateGroup>();
         /// <summary>True when the filter has structure we do not evaluate (or / not(...) / unknown calls).</summary>
         public bool Partial;
         public string Raw;
@@ -168,6 +181,7 @@ namespace WindBot.Agent.Knowledge
         private static readonly Regex DuelCall = new Regex(@"Duel\.(\w+)\(", RegexOptions.Compiled);
         private static readonly Regex PredicateCall = new Regex(@"(not\s+)?c:(Is\w+)\(([^()]*)\)", RegexOptions.Compiled);
         private static readonly Regex NestedFilter = new Regex(@"s\.(\w+)\(\s*c\b", RegexOptions.Compiled);
+        private static readonly Regex OrGroup = new Regex(@"(not\s+)?\(\s*((?:(?:not\s+)?c:Is\w+\([^()]*\)\s*(?:or\s+)?)+)\)", RegexOptions.Compiled);
         private static readonly Regex BoolFunction = new Regex(@"aux\.FilterBoolFunctionEx?\(\s*Card\.(Is\w+)\s*,\s*([^()]*)\)", RegexOptions.Compiled);
 
         public bool Found;
@@ -435,6 +449,16 @@ namespace WindBot.Agent.Knowledge
                 info.Predicates.Add(new Predicate { Method = filterExpr.Substring(5) });
                 return info;
             }
+            // aux.FaceupFilter(Card.IsX, ARG) = face-up and IsX(ARG)
+            Match ff = Regex.Match(filterExpr, @"^aux\.FaceupFilter\(\s*Card\.(Is\w+)\s*,\s*([^()]*)\)$");
+            if (ff.Success)
+            {
+                info.Predicates.Add(new Predicate { Method = "IsFaceup" });
+                Predicate p = new Predicate { Method = ff.Groups[1].Value };
+                foreach (string a in SplitArgs(ff.Groups[2].Value)) p.Args.Add(a);
+                info.Predicates.Add(p);
+                return info;
+            }
             Match bf = BoolFunction.Match(filterExpr);
             if (bf.Success)
             {
@@ -461,6 +485,19 @@ namespace WindBot.Agent.Knowledge
             if (ret < 0) { info.Partial = true; return; }
             string expr = body.Substring(ret + 6);
             info.Raw = (info.Raw == null ? "" : info.Raw + " ; ") + Regex.Replace(expr.Trim(), @"\s+", " ");
+            // "(c:IsA(x) or c:IsB(y))" and "not (...)" groups are read as OR groups; other "or" stays unparsed.
+            foreach (Match g in OrGroup.Matches(expr))
+            {
+                PredicateGroup group = new PredicateGroup { Negated = g.Groups[1].Success };
+                foreach (Match m in PredicateCall.Matches(g.Groups[2].Value))
+                {
+                    Predicate p = new Predicate { Method = m.Groups[2].Value, Negated = m.Groups[1].Success };
+                    foreach (string a in SplitArgs(m.Groups[3].Value)) if (a.Length > 0) p.Args.Add(a);
+                    group.Items.Add(p);
+                }
+                info.Groups.Add(group);
+            }
+            expr = OrGroup.Replace(expr, " ");
             if (Regex.IsMatch(expr, @"\bor\b") || expr.Contains("not (") || Regex.IsMatch(body, @"\b(local|if)\b")) info.Partial = true;
             foreach (Match m in PredicateCall.Matches(expr))
             {

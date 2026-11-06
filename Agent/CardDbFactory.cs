@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using WindBot.Agent.Knowledge;
 using WindBot.Game;
@@ -88,9 +89,52 @@ namespace WindBot.Agent
                 sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 필드·묘지 비어 있음, 일반 소환 가능)");
                 sb.AppendLine();
                 sb.Append(DescribeValues(db, model, zones));
+                sb.AppendLine("## 턴 계획 (흐름 + 턴 종료 방해 − 효율)");
+                sb.Append(DescribePlan(new TurnPlanner(db, model.Weights), zones));
+                sb.AppendLine();
+            }
+            if (Config.GetBool("AgentDbInterrupts", hand != null))
+            {
+                sb.AppendLine("# 방해 가치 (이 덱)");
+                sb.AppendLine();
+                sb.Append(DescribeInterrupts(db, LoadWeights()));
             }
             File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
             Logger.WriteLine("Card DB: " + db.Cards.Count + " cards, constants " + db.ConstantCount + ", script dirs " + db.ScriptDirCount + " → " + Path.GetFullPath(outPath));
+        }
+
+        /// <summary>Interruption value of every effect in the deck that can be used on the opponent's turn.</summary>
+        public static string DescribeInterrupts(GameCardDb db, ValueWeights w)
+        {
+            InterruptModel im = new InterruptModel(w);
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("| 카드 | 효과 | 종류 | 패에서 | 필드·세트 |");
+            sb.AppendLine("|---|---|---|---|---|");
+            foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent).OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (!im.IsInterrupt(c, e) || im.TypeValue(c, e) <= 0) continue;
+                    bool hand = (e.Range != null && e.Range.Contains("HAND")) || c.TrapActInHand;
+                    sb.AppendLine("| " + c.Data.Name + (w.Excluded.Contains(c.Data.Id) ? " (제외)" : "") + " | " + e.Index + " | " + im.TypeName(c, e)
+                        + " | " + (hand ? im.Value(c, e, true).ToString("0.#") : "-") + " | " + im.Value(c, e, false).ToString("0.#") + " |");
+                }
+            return sb.ToString();
+        }
+
+        /// <summary>Best plan for this turn and the best plan for each first move.</summary>
+        public static string DescribePlan(TurnPlanner planner, IZoneView zones)
+        {
+            StringBuilder sb = new StringBuilder();
+            List<PlanResult> byFirst;
+            PlanResult stop;
+            PlanResult best = planner.Plan(zones.Snapshot(), out byFirst, out stop);
+            sb.AppendLine("- 최선 계획: " + best.Describe());
+            sb.AppendLine("- 아무것도 안 하고 턴 종료: " + stop.Describe());
+            foreach (PlanResult r in byFirst.GroupBy(x => x.Moves[0].Text).Select(g => g.OrderByDescending(x => x.Value).First())
+                                            .OrderByDescending(x => x.Value).Take(10))
+                sb.AppendLine("  - 첫 행동 " + r.Moves[0].Text + " → " + r.Value.ToString("0.#"));
+            if (planner.Exhausted) sb.AppendLine("- (탐색 예산 소진: 일부 경로만 확인)");
+            return sb.ToString();
         }
 
         /// <summary>Readable value table for the cards in hand: deck remaining, best chain if brought out, normal summon chain.</summary>
@@ -125,6 +169,27 @@ namespace WindBot.Agent
         public StaticZoneView() { NormalSummonAvailable = true; }
         public int Materials { get; set; }
         public int FieldMaterials() { return Materials; }
+
+        public ZoneSnapshot Snapshot()
+        {
+            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable };
+            Fill(z.Hand, "HAND");
+            List<int> mons = new List<int>();
+            Fill(mons, "MZONE");
+            int mats = Materials;
+            foreach (int id in mons) { z.Monsters.Add(new KeyValuePair<int, int>(id, mats)); mats = 0; }
+            Fill(z.Spells, "SZONE");
+            Fill(z.Grave, "GRAVE");
+            Fill(z.Banished, "REMOVED");
+            return z;
+        }
+
+        private void Fill(List<int> list, string zone)
+        {
+            Dictionary<int, int> z;
+            if (!_zones.TryGetValue(zone, out z)) return;
+            foreach (var kv in z) for (int i = 0; i < kv.Value; ++i) list.Add(kv.Key);
+        }
 
         public void Add(string zone, int id)
         {

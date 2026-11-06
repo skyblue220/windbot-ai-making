@@ -34,7 +34,55 @@ namespace WindBot.Agent.Knowledge
             { "destroy_or_negate", 35 },
             { "cost_extra_to_grave", -5 },
             { "cost_detach", -2 }, // materials are dummies; their worth is what they fuel (VALUE_MODEL.md 2장)
+
+            // Interruptions on the opponent's turn (VALUE_MODEL.md 7.2 / 7.3)
+            { "int.destroy", 30 },
+            { "int.banish", 35 },
+            { "int.negate_effect", 40 },
+            { "int.negate_activation", 38 },
+            { "int.negate_effect_destroy", 48 },
+            { "int.negate_activation_destroy", 47 },
+            { "int.draw", 60 },
+            { "int.wipe", 50 },
+            { "int.protect", 30 },
+            { "int.lock", 35 },
+            { "int.handtrap_bonus", 15 },
+            { "int.chainproof_bonus", 5 },
+            { "int.battle_factor", 0.5 },
         };
+
+        /// <summary>
+        /// Per card-effect interruption settings, key "&lt;kind&gt;.&lt;cardId&gt;:&lt;effectIndex&gt;":
+        /// ib = base override, is = scope factor, ibt = battle-phase only (1), ia = additive bonus,
+        /// imc = multiply by the number of our monsters matching the effect's condition (1).
+        /// Defaults below are the agreed AI_Ryzeal table (VALUE_MODEL.md 7.4); other cards fall back to
+        /// automatic classification from the Lua categories.
+        /// </summary>
+        public readonly Dictionary<string, double> CardInt = new Dictionary<string, double>(StringComparer.Ordinal)
+        {
+            { "is.14558127:1", 0.8 },                         // Ash Blossom: limited trigger list
+            { "ib.42141493:1", 50 },                          // Mulcharmy Fuwalos: draw, needs empty field
+            { "ib.84192580:1", 50 }, { "is.84192580:1", 0.8 }, // Mulcharmy Purulia
+            { "is.73642296:1", 0.5 },                         // Ghost Belle: GY effects only
+            { "is.67750322:1", 0.5 },                         // Skull Meister: opponent GY only
+            { "ib.27204311:1", 50 }, { "is.27204311:1", 0.5 }, // Nibiru: wipe, 5-summon condition
+            { "is.31548215:1", 0.8 },                         // Gravedigger's Trap Hole
+            { "ib.65681983:1", 40 }, { "is.65681983:1", 0.8 }, // Crossout Designator: negate by name
+            { "imc.33787730:1", 1 },                          // Plasma Hole: up to the number of Ryzeal Xyz
+            { "ib.6798031:4", 40 }, { "is.6798031:4", 0.8 }, { "ia.6798031:4", 5 }, // Ryzeal Cross ③: does not activate
+            { "ib.6511113:5", 40 }, { "is.6511113:5", 0.8 },   // Rafflesia ③: copies Gravedigger
+            { "is.9940036:3", 0.8 },                          // Aggregator ③
+            { "ib.93039339:1", 35 }, { "is.93039339:1", 0.5 }, // TY-PHON ①: lock
+            { "is.6983839:1", 0.5 },                          // Tornado Dragon: S/T only
+            { "ib.2061963:1", 38 }, { "is.2061963:1", 0.8 }, { "ibt.2061963:1", 1 }, // Number 104
+            { "ib.46772449:1", 50 }, { "is.46772449:1", 0.5 }, { "ibt.46772449:1", 1 }, // Exciton Knight
+            { "ib.1269512:2", 40 }, { "is.1269512:2", 0.5 }, { "ibt.1269512:2", 1 },   // FA Ray Lancer ②
+        };
+
+        public bool TryCardInt(string kind, int cardId, int effectIndex, out double v)
+        {
+            return CardInt.TryGetValue(kind + "." + cardId.ToString(CultureInfo.InvariantCulture) + ":" + effectIndex, out v);
+        }
 
         /// <summary>Penalty per hand card spent, for the end-of-turn interruption evaluation (VALUE_MODEL.md 7.5). Provisional; not used until that evaluation exists.</summary>
         public double EfficiencyPerHandCard = 10;
@@ -89,6 +137,7 @@ namespace WindBot.Agent.Knowledge
                     if (int.TryParse(key.Substring(8), out id)) { if (v != 0) w.Excluded.Add(id); else w.Excluded.Remove(id); }
                 }
                 else if (key.StartsWith("base.")) w.Base[key.Substring(5)] = v;
+                else if (key.StartsWith("ib.") || key.StartsWith("is.") || key.StartsWith("ibt.") || key.StartsWith("ia.") || key.StartsWith("imc.")) w.CardInt[key] = v;
                 else if (key.StartsWith("offset.")) w.Offsets[key.Substring(7)] = v;
             }
             w.Source = path;
@@ -103,6 +152,7 @@ namespace WindBot.Agent.Knowledge
             sb.Append("  \"efficiencyPerHandCard\": ").Append(EfficiencyPerHandCard.ToString(CultureInfo.InvariantCulture));
             foreach (int id in Excluded) sb.Append(",\n  \"exclude.").Append(id.ToString(CultureInfo.InvariantCulture)).Append("\": 1");
             foreach (var kv in Base) sb.Append(",\n  \"base.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
+            foreach (var kv in CardInt) sb.Append(",\n  \"").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             foreach (var kv in Offsets) sb.Append(",\n  \"offset.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             return sb.Append("\n}\n").ToString();
         }
@@ -119,6 +169,8 @@ namespace WindBot.Agent.Knowledge
         bool NormalSummonAvailable { get; }
         /// <summary>Total Xyz materials attached to our monsters.</summary>
         int FieldMaterials();
+        /// <summary>All our visible cards, for the turn planner.</summary>
+        ZoneSnapshot Snapshot();
         /// <summary>Any own card in the given zones matches the predicate (used for summon conditions).</summary>
         bool AnyOwn(string zones, Func<int, bool> match);
     }

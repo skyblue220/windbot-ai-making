@@ -30,6 +30,19 @@ namespace WindBot.Agent
             return n;
         }
 
+        public ZoneSnapshot Snapshot()
+        {
+            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable };
+            if (Self == null || Self.Hand == null) return z;
+            foreach (ClientCard c in Self.Hand) if (c != null && c.Id != 0) z.Hand.Add(c.Id);
+            foreach (ClientCard c in Self.MonsterZone)
+                if (c != null && c.Id != 0) z.Monsters.Add(new KeyValuePair<int, int>(c.Id, c.Overlays != null ? c.Overlays.Count : 0));
+            foreach (ClientCard c in Self.SpellZone) if (c != null && c.Id != 0) z.Spells.Add(c.Id);
+            foreach (ClientCard c in Self.Graveyard) if (c != null && c.Id != 0) z.Grave.Add(c.Id);
+            foreach (ClientCard c in Self.Banished) if (c != null && c.Id != 0) z.Banished.Add(c.Id);
+            return z;
+        }
+
         public int Hand(int id) { return Self == null ? 0 : Count(Self.Hand, id); }
         public int Field(int id) { return Self == null ? 0 : Count(Self.MonsterZone, id) + Count(Self.SpellZone, id); }
         public int Grave(int id) { return Self == null ? 0 : Count(Self.Graveyard, id); }
