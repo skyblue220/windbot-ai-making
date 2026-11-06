@@ -74,7 +74,7 @@ namespace WindBot.Agent
             try
             {
                 _db = CardDbFactory.Build(_deckList);
-                WriteCardDb("start");
+                WriteCardDb();
             }
             catch (Exception ex)
             {
@@ -83,18 +83,38 @@ namespace WindBot.Agent
             }
         }
 
-        private void WriteCardDb(string tag)
+        private string LogBase { get { return _log.Path.Substring(0, _log.Path.Length - ".jsonl".Length); } }
+
+        /// <summary>Fixed card information and links. Written at start, rewritten at the end to include revealed opponent cards.</summary>
+        private void WriteCardDb()
         {
             if (_db == null) return;
             try
             {
-                string path = _log.Path.Substring(0, _log.Path.Length - ".jsonl".Length) + "_carddb_" + tag + ".md";
-                System.IO.File.WriteAllText(path, _db.Describe(InstancesOf), new System.Text.UTF8Encoding(false));
-                _log.CardDb(tag, path, _db.Cards.Count);
+                string path = LogBase + "_carddb.md";
+                System.IO.File.WriteAllText(path, _db.Describe(null), new UTF8Encoding(false));
+                _log.CardDb("carddb", path, _db.Cards.Count);
             }
             catch (Exception ex)
             {
                 _log.Error("carddb-write", ex.ToString());
+            }
+        }
+
+        /// <summary>One compact section per turn: events, effects used, where our cards are.</summary>
+        private void AppendState(string title)
+        {
+            if (_db == null) return;
+            try
+            {
+                string path = LogBase + "_state.md";
+                if (!System.IO.File.Exists(path))
+                    System.IO.File.WriteAllText(path, "# 듀얼 상태 기록\n\n", new UTF8Encoding(false));
+                System.IO.File.AppendAllText(path, _db.DescribeState(title, InstancesOf), new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                _log.Error("state-write", ex.ToString());
             }
         }
 
@@ -331,7 +351,7 @@ namespace WindBot.Agent
                 }
                 else if (message == GameMessage.NewTurn)
                 {
-                    if (_db.Turn > 0) WriteCardDb("turn" + _db.Turn);
+                    if (_db.Turn > 0) AppendState("턴 종료");
                     _db.OnNewTurn(_duel.Turn);
                 }
             }
@@ -344,7 +364,8 @@ namespace WindBot.Agent
         public void OnWin(int result)
         {
             _log.Result(result == 2 ? "Draw" : result == 0 ? "Win" : "Lose", _duel.Turn);
-            WriteCardDb("end");
+            AppendState("듀얼 종료: " + (result == 2 ? "무승부" : result == 0 ? "승리" : "패배"));
+            WriteCardDb();
             _duelFinished = true;
         }
 

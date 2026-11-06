@@ -70,6 +70,8 @@ namespace WindBot.Agent.Knowledge
         public readonly List<string> Categories = new List<string>();
         public string Range;
         public CountLimit Limit;
+        /// <summary>Usage counter key: the count-limit key when there is one, otherwise unique to this card's effect.</summary>
+        public string UsageKey;
         public readonly List<CardLink> Links = new List<CardLink>();
         public readonly List<string> Unresolved = new List<string>();
         public string Confidence = "inferred";
@@ -271,6 +273,7 @@ namespace WindBot.Agent.Knowledge
                 e.Categories.AddRange(Names(def.CategoryExpr, "CATEGORY_"));
                 e.Range = def.RangeExpr != null ? String.Join("|", Names(def.RangeExpr, "LOCATION_").ToArray()) : null;
                 e.Limit = ReadCountLimit(def, c.Data.Id);
+                e.UsageKey = e.Limit != null ? e.Limit.Key : "card" + c.Data.Id + ":effect" + e.Index;
 
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
@@ -620,18 +623,31 @@ namespace WindBot.Agent.Knowledge
             TurnEvents.Clear();
         }
 
-        private KeyUsage Usage(int player, CountLimit limit)
+        private static string KeyOf(CardEntry card, EffectEntry e)
         {
-            Dictionary<string, KeyUsage> table = limit != null && limit.PerDuel ? _duelUsage[player] : _usage[player];
-            string key = limit != null ? limit.Key : "(no limit)";
+            if (e != null) return e.UsageKey;
+            return "card" + (card != null ? card.Data.Id : 0) + ":unknown";
+        }
+
+        private Dictionary<string, KeyUsage> TableOf(int player, EffectEntry e)
+        {
+            return e != null && e.Limit != null && e.Limit.PerDuel ? _duelUsage[player] : _usage[player];
+        }
+
+        private KeyUsage Usage(int player, CardEntry card, EffectEntry e)
+        {
+            Dictionary<string, KeyUsage> table = TableOf(player, e);
+            string key = KeyOf(card, e);
             KeyUsage u;
             if (!table.TryGetValue(key, out u)) { u = new KeyUsage(); table[key] = u; }
             return u;
         }
 
-        public KeyUsage UsageOf(int player, EffectEntry e)
+        /// <summary>Usage without creating an entry; null when the effect was not touched.</summary>
+        public KeyUsage PeekUsage(int player, EffectEntry e)
         {
-            return Usage(player, e.Limit);
+            KeyUsage u;
+            return TableOf(player, e).TryGetValue(e.UsageKey, out u) ? u : null;
         }
 
         /// <summary>Finds the effect an engine description refers to: (card code &lt;&lt; 20) | string index.</summary>
@@ -654,7 +670,7 @@ namespace WindBot.Agent.Knowledge
             EffectEntry e = FindEffect(card, description);
             PendingLink link = new PendingLink { Player = player, Card = card, Effect = e };
             _chain[chainLink] = link;
-            KeyUsage u = Usage(player, e != null ? e.Limit : null);
+            KeyUsage u = Usage(player, card, e);
             u.Activated++;
             if (e != null && e.Limit != null && e.Limit.Oath) u.Used++;
             TurnEvents.Add("체인 " + chainLink + ": " + Who(player) + " " + Name(card) + " " + EffectName(e) + " 발동");
@@ -665,7 +681,7 @@ namespace WindBot.Agent.Knowledge
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             l.ActivationNegated = true;
-            Usage(l.Player, l.Effect != null ? l.Effect.Limit : null).ActivationNegated++;
+            Usage(l.Player, l.Card, l.Effect).ActivationNegated++;
             TurnEvents.Add("체인 " + chainLink + ": 발동 무효 (" + Name(l.Card) + ")");
         }
 
@@ -674,7 +690,7 @@ namespace WindBot.Agent.Knowledge
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             l.EffectNegated = true;
-            Usage(l.Player, l.Effect != null ? l.Effect.Limit : null).EffectNegated++;
+            Usage(l.Player, l.Card, l.Effect).EffectNegated++;
             TurnEvents.Add("체인 " + chainLink + ": 효과 무효 (" + Name(l.Card) + ")");
         }
 
@@ -682,7 +698,7 @@ namespace WindBot.Agent.Knowledge
         {
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
-            KeyUsage u = Usage(l.Player, l.Effect != null ? l.Effect.Limit : null);
+            KeyUsage u = Usage(l.Player, l.Card, l.Effect);
             if (!l.ActivationNegated)
             {
                 // "use" counts once the activation stands, even if the effect itself was negated.
@@ -704,7 +720,7 @@ namespace WindBot.Agent.Knowledge
             if (card == null) return;
             EffectEntry proc = card.Effects.FirstOrDefault(e => e.Kind.StartsWith("룰"));
             if (proc == null) return;
-            KeyUsage u = Usage(0, proc.Limit);
+            KeyUsage u = Usage(0, card, proc);
             u.Activated++;
             u.Used++;
             u.Resolved++;
@@ -724,7 +740,7 @@ namespace WindBot.Agent.Knowledge
         public string UsageText(int player, EffectEntry e)
         {
             if (e.Limit == null && e.Kind.StartsWith("적용")) return "";
-            KeyUsage u = Usage(player, e.Limit);
+            KeyUsage u = PeekUsage(player, e) ?? new KeyUsage();
             string limit = e.Limit != null ? "/" + e.Limit.Count : "";
             return "발동 " + u.Activated + "회, 사용 " + u.Used + limit + (u.ActivationNegated > 0 ? ", 발동 무효 " + u.ActivationNegated : "")
                  + (u.EffectNegated > 0 ? ", 효과 무효 " + u.EffectNegated : "")
@@ -733,18 +749,60 @@ namespace WindBot.Agent.Knowledge
 
         // ------------------------------------------------------------------ readable export
 
+        /// <summary>
+        /// Compact per-turn state: events, effects used this turn (both players), and where our cards are.
+        /// Appended once per turn so the fixed card information is not repeated.
+        /// </summary>
+        public string DescribeState(string title, Func<int, string> instances)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("## " + title + " (턴 " + Turn + ")");
+            sb.AppendLine("- 일반 소환: " + (NormalSummonUsed ? "사용함" : "안 함"));
+            if (TurnEvents.Count > 0)
+            {
+                sb.AppendLine("- 기록:");
+                foreach (string ev in TurnEvents) sb.AppendLine("  - " + ev);
+            }
+            List<string> used = new List<string>();
+            foreach (CardEntry c in Cards.Values)
+                foreach (EffectEntry e in c.Effects)
+                    for (int p = 0; p < 2; ++p)
+                    {
+                        KeyUsage u = PeekUsage(p, e);
+                        if (u == null || u.Activated == 0) continue;
+                        used.Add((p == 0 ? "자신 " : "상대 ") + c.Data.Name + " 효과 " + e.Index + ": " + UsageText(p, e));
+                    }
+            if (used.Count > 0)
+            {
+                sb.AppendLine("- 사용한 효과:");
+                foreach (string s in used.Distinct()) sb.AppendLine("  - " + s);
+            }
+            if (instances != null)
+            {
+                List<string> where = new List<string>();
+                foreach (CardEntry c in Cards.Values)
+                {
+                    string inst = instances(c.Data.Id);
+                    if (!String.IsNullOrEmpty(inst)) where.Add(c.Data.Name + ": " + inst);
+                }
+                if (where.Count > 0)
+                {
+                    sb.AppendLine("- 카드 위치:");
+                    foreach (string w in where) sb.AppendLine("  - " + w);
+                }
+            }
+            sb.AppendLine();
+            return sb.ToString();
+        }
+
+        /// <summary>Fixed card information and links (written once per game).</summary>
         public string Describe(Func<int, string> instances)
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("# 게임 카드 DB");
             sb.AppendLine();
-            sb.AppendLine("- 턴: " + Turn + " / 이번 턴 일반 소환: " + (NormalSummonUsed ? "사용함" : "안 함"));
             sb.AppendLine("- 메인 덱 " + MainDeck.Count + "장, 엑스트라 덱 " + ExtraDeck.Count + "장, DB 카드 종류 " + Cards.Count);
-            if (TurnEvents.Count > 0)
-            {
-                sb.AppendLine("- 이번 턴 기록:");
-                foreach (string ev in TurnEvents) sb.AppendLine("  - " + ev);
-            }
+            sb.AppendLine("- 턴마다 바뀌는 발동·사용 기록과 카드 위치는 같은 이름의 `_state.md`에 있다.");
             sb.AppendLine();
 
             foreach (CardEntry c in Cards.Values.OrderBy(x => x.Opponent).ThenBy(x => x.InExtraDeck).ThenBy(x => x.Data.Name, StringComparer.Ordinal))
@@ -752,11 +810,6 @@ namespace WindBot.Agent.Knowledge
                 CardData d = c.Data;
                 sb.AppendLine("## " + d.Name + " (" + d.Id + ")" + (c.Opponent ? " — 상대 카드" : c.CopiesInDeck > 0 ? " ×" + c.CopiesInDeck + (c.InExtraDeck ? " [엑스트라]" : "") : ""));
                 sb.AppendLine(Stats(d));
-                if (instances != null)
-                {
-                    string inst = instances(d.Id);
-                    if (!String.IsNullOrEmpty(inst)) sb.AppendLine("- 지금: " + inst);
-                }
                 if (!c.ScriptFound) sb.AppendLine("- 스크립트 없음" + (c.Notes.Count > 0 ? " (" + String.Join(", ", c.Notes.ToArray()) + ")" : ""));
                 if (c.Material != null)
                     sb.AppendLine("- 소환 조건: " + c.Material.Relation + FilterText(c.Material.Filter) + " → 이 덱에서: " + NamesOf(c.Material.Targets));
@@ -775,8 +828,6 @@ namespace WindBot.Agent.Knowledge
                                : l.Filter.Partial ? " → (미해석, 연결 계산 안 함)"
                                : l.AnyCard ? " → 조건에 맞는 아무 카드"
                                : " → 이 덱에서: " + NamesOf(l.Targets)));
-                    string usage = UsageText(0, e);
-                    if (usage.Length > 0) sb.AppendLine("  - 이번 턴(자신): " + usage);
                     foreach (string u in e.Unresolved) sb.AppendLine("  - 미해석: " + u);
                 }
                 if (c.LinkedFrom.Count > 0)
