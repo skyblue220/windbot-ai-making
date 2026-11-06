@@ -115,6 +115,8 @@ namespace WindBot.Agent.Knowledge
         public string OpponentLocation;
         /// <summary>Written as "not Duel.IsExisting...": the cards must NOT exist.</summary>
         public bool Negated;
+        /// <summary>Position of the call in the function body (to find the action that uses the picked cards).</summary>
+        public int Index;
 
         /// <summary>Calls that only check existence/count rather than pick cards to act on.</summary>
         public bool IsCheck
@@ -355,10 +357,27 @@ namespace WindBot.Agent.Knowledge
                     result.Add(new Selection
                     {
                         Function = function, Call = m.Groups[1].Value, Filter = m.Groups[2].Value,
-                        SelfLocation = m.Groups[3].Value, OpponentLocation = m.Groups[4].Value, Negated = negated
+                        SelfLocation = m.Groups[3].Value, OpponentLocation = m.Groups[4].Value, Negated = negated, Index = m.Index
                     });
                 }
+            result.Sort((a, b) => a.Index.CompareTo(b.Index));
             return result;
+        }
+
+        private static readonly HashSet<string> ActionNames = new HashSet<string>
+        {
+            "SpecialSummon", "SendtoHand", "Overlay", "SSet", "Destroy", "SendtoGrave", "SendtoDeck", "Remove", "Release", "Draw"
+        };
+
+        /// <summary>Card-moving Duel calls in a function body (not expanded), in order of appearance.</summary>
+        public List<KeyValuePair<int, string>> ActionCalls(string function)
+        {
+            List<KeyValuePair<int, string>> calls = new List<KeyValuePair<int, string>>();
+            string body = Body(function);
+            if (body == null) return calls;
+            foreach (Match m in DuelCall.Matches(body))
+                if (ActionNames.Contains(m.Groups[1].Value)) calls.Add(new KeyValuePair<int, string>(m.Index, m.Groups[1].Value));
+            return calls;
         }
 
         public List<string> DuelCalls(string function)

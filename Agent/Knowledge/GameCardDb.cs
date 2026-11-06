@@ -379,8 +379,16 @@ namespace WindBot.Agent.Knowledge
                 {
                     // A target function usually only checks; the action is in the operation.
                     string actionFunction = role == "effect" && def.Operation != null && !def.Operation.StartsWith("(inline)") ? def.Operation : sel.Function;
-                    List<string> calls = s.DuelCalls(sel.Function);
-                    calls.AddRange(s.DuelCalls(actionFunction));
+                    // The picked cards are used by the next card-moving call after the pick
+                    // (e.g. Plugin: pick from deck → Overlay, not the earlier SpecialSummon).
+                    List<string> calls = new List<string>();
+                    string action = ActionFor(s, sel, actionFunction);
+                    if (action != null) calls.Add(action);
+                    else
+                    {
+                        calls.AddRange(s.DuelCalls(sel.Function));
+                        calls.AddRange(s.DuelCalls(actionFunction));
+                    }
                     bool cost = role == "cost" || s.Mentions(sel.Function, "REASON_COST") || (sel.Function != actionFunction && s.Mentions(actionFunction, "REASON_COST") && !calls.Contains("SendtoHand") && !calls.Contains("SpecialSummon"));
                     link.Relation = Relation(cost, calls, loc, e);
                     if (cost) link.Role = "cost";
@@ -392,6 +400,20 @@ namespace WindBot.Agent.Knowledge
         private static string Loc(string expr)
         {
             return String.Join("|", expr.Split('|').Select(x => x.Trim().Replace("LOCATION_", "")).ToArray());
+        }
+
+        private static string ActionFor(LuaScript s, Selection sel, string actionFunction)
+        {
+            // 1) a card-moving call after the pick in the same function
+            foreach (var a in s.ActionCalls(sel.Function))
+                if (a.Key > sel.Index) return a.Value;
+            // 2) a pick in the target function is used by the first action of the operation
+            if (actionFunction != sel.Function)
+            {
+                List<KeyValuePair<int, string>> op = s.ActionCalls(actionFunction);
+                if (op.Count > 0) return op[0].Value;
+            }
+            return null;
         }
 
         private string Relation(bool cost, List<string> calls, string loc, EffectEntry e)

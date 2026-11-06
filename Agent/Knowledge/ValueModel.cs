@@ -28,6 +28,7 @@ namespace WindBot.Agent.Knowledge
             { "rule_special_summon", 20 },
             { "grave_to_deck", 10 },
             { "attach_from_grave", 10 },
+            { "attach_from_deck", 10 }, // not in the agreed table yet: same as grave → material for now
             { "extra_to_grave", 10 },
             { "destroy_replace", 15 },
             { "destroy_or_negate", 35 },
@@ -362,7 +363,12 @@ namespace WindBot.Agent.Knowledge
         public static string FunctionOf(CardLink l)
         {
             string r = l.Relation;
-            if (r.Contains("엑시즈 소재로")) return r.Contains("묘지") ? "attach_from_grave" : null;
+            if (r.Contains("엑시즈 소재로"))
+            {
+                if (r.StartsWith("묘지")) return "attach_from_grave";
+                if (r.StartsWith("덱에서")) return "attach_from_deck";
+                return null;
+            }
             if (r.Contains("특수 소환"))
             {
                 if (r.StartsWith("덱에서")) return "special_summon_from_deck";
@@ -386,6 +392,7 @@ namespace WindBot.Agent.Knowledge
                 case "set_from_deck": return "덱 세트";
                 case "grave_to_deck": return "묘지→덱";
                 case "attach_from_grave": return "묘지→소재";
+                case "attach_from_deck": return "덱→소재";
                 case "extra_to_grave": return "엑스트라→묘지";
                 default: return f;
             }
@@ -407,11 +414,22 @@ namespace WindBot.Agent.Knowledge
         /// </summary>
         private bool HasTargets(EffectEntry e, Ctx ctx)
         {
+            // If the effect brings a card (summon / search / set), that main pick decides whether it can be activated;
+            // side functions (e.g. Plugin's "then attach from deck") do not.
+            bool hasMain = e.Links.Any(l => l.Role == "effect" && !l.Opponent && Arrival(l) != null);
             bool needsTarget = false;
             foreach (CardLink l in e.Links)
             {
                 if (l.Role != "effect" || l.Opponent || FunctionOf(l) == null) continue;
-                if (l.Filter == null || l.Filter.Partial || l.AnyCard) return true;
+                if (hasMain && Arrival(l) == null) continue;
+                if (l.Filter == null || l.Filter.Partial || l.AnyCard)
+                {
+                    // Unparsed target: from the deck we assume something fits; from grave/banishment there must be a card there at all.
+                    if (l.Location.Contains("DECK")) return true;
+                    if ((l.Location.Contains("GRAVE") || l.Location.Contains("REMOVED")) && ctx.Zones.AnyOwn(l.Location, id => true)) return true;
+                    needsTarget = true;
+                    continue;
+                }
                 needsTarget = true;
                 foreach (int t in l.Targets.Distinct())
                     if (Available(t, l, ctx)) return true;
