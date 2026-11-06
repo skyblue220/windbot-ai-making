@@ -33,13 +33,26 @@ namespace WindBot.Agent.Knowledge
             { "destroy_replace", 15 },
             { "destroy_or_negate", 35 },
             { "cost_extra_to_grave", -5 },
-            { "cost_detach", -10 },
+            { "cost_detach", -2 }, // materials are dummies; their worth is what they fuel (VALUE_MODEL.md 2장)
         };
+
+        /// <summary>Penalty per hand card spent, for the end-of-turn interruption evaluation (VALUE_MODEL.md 7.5). Provisional; not used until that evaluation exists.</summary>
+        public double EfficiencyPerHandCard = 10;
+
+        /// <summary>Cards left out of every evaluation (e.g. put in the deck by mistake). Key in the file: "exclude.&lt;cardId&gt;": 1.</summary>
+        public readonly HashSet<int> Excluded = new HashSet<int>();
 
         /// <summary>Learned offsets, key "cardId:effectIndex". Learning changes only these.</summary>
         public readonly Dictionary<string, double> Offsets = new Dictionary<string, double>(StringComparer.Ordinal);
 
         public string Source = "defaults";
+
+        public ValueWeights()
+        {
+            // Put in AI_Ryzeal by mistake (2026-11-07); excluded until removed from the ydk. Overridable in the file with value 0.
+            Excluded.Add(90091224); // Dark Rebellion Xyz Dragon of the Four Heavenly Dragons
+            Excluded.Add(77675029); // Exosister Karmael
+        }
 
         public double BaseOf(string function)
         {
@@ -69,6 +82,12 @@ namespace WindBot.Agent.Knowledge
                 double v = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
                 if (key == "gamma") w.Gamma = v;
                 else if (key == "maxSteps") w.MaxSteps = (int)v;
+                else if (key == "efficiencyPerHandCard") w.EfficiencyPerHandCard = v;
+                else if (key.StartsWith("exclude."))
+                {
+                    int id;
+                    if (int.TryParse(key.Substring(8), out id)) { if (v != 0) w.Excluded.Add(id); else w.Excluded.Remove(id); }
+                }
                 else if (key.StartsWith("base.")) w.Base[key.Substring(5)] = v;
                 else if (key.StartsWith("offset.")) w.Offsets[key.Substring(7)] = v;
             }
@@ -80,7 +99,9 @@ namespace WindBot.Agent.Knowledge
         {
             StringBuilder sb = new StringBuilder("{\n");
             sb.Append("  \"gamma\": ").Append(Gamma.ToString(CultureInfo.InvariantCulture)).Append(",\n");
-            sb.Append("  \"maxSteps\": ").Append(MaxSteps.ToString(CultureInfo.InvariantCulture));
+            sb.Append("  \"maxSteps\": ").Append(MaxSteps.ToString(CultureInfo.InvariantCulture)).Append(",\n");
+            sb.Append("  \"efficiencyPerHandCard\": ").Append(EfficiencyPerHandCard.ToString(CultureInfo.InvariantCulture));
+            foreach (int id in Excluded) sb.Append(",\n  \"exclude.").Append(id.ToString(CultureInfo.InvariantCulture)).Append("\": 1");
             foreach (var kv in Base) sb.Append(",\n  \"base.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             foreach (var kv in Offsets) sb.Append(",\n  \"offset.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             return sb.Append("\n}\n").ToString();
@@ -226,6 +247,7 @@ namespace WindBot.Agent.Knowledge
         {
             ChainResult best = new ChainResult();
             if (step >= _w.MaxSteps || --ctx.Budget < 0) return best;
+            if (_w.Excluded.Contains(card.Data.Id)) return best;
 
             // Spells in hand: their activation effects. (Traps must be set first, so they bring nothing this turn.)
             if ((card.Data.Type & 0x2) != 0)
@@ -262,6 +284,7 @@ namespace WindBot.Agent.Knowledge
         {
             ChainResult best = new ChainResult();
             if (step >= _w.MaxSteps || --ctx.Budget < 0) return best;
+            if (_w.Excluded.Contains(card.Data.Id)) return best;
             ctx.OnField.Add(card.Data.Id);
             foreach (EffectEntry e in card.Effects)
             {
@@ -280,6 +303,7 @@ namespace WindBot.Agent.Knowledge
         {
             ChainResult result = new ChainResult();
             if (step >= _w.MaxSteps || --ctx.Budget < 0) return result;
+            if (_w.Excluded.Contains(card.Data.Id)) return result;
             if (ctx.UsedKeys.Contains(e.UsageKey)) return result;
             if (!HasTargets(e, ctx)) return result; // e.g. "special summon from grave" with nothing in the grave: cannot be activated
             if (e.DetachCount > ctx.Zones.FieldMaterials()) return result; // e.g. Star's rule summon needs a material to detach
@@ -448,6 +472,7 @@ namespace WindBot.Agent.Knowledge
 
         private bool Available(int cardId, CardLink l, Ctx ctx)
         {
+            if (_w.Excluded.Contains(cardId)) return false;
             if (l.Location.Contains("DECK"))
             {
                 int left;
