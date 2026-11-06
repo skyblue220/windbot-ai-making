@@ -74,6 +74,8 @@ namespace WindBot.Agent.Knowledge
         public string UsageKey;
         /// <summary>Xyz materials this effect removes from our field (cost or resolution). Requires that many materials.</summary>
         public int DetachCount;
+        /// <summary>The resolution forbids normal summoning the added card (e.g. Lightning Crash: EFFECT_CANNOT_SUMMON).</summary>
+        public bool BlocksNormalSummonOfAdded;
         public readonly List<CardLink> Links = new List<CardLink>();
         public readonly List<string> Unresolved = new List<string>();
         public string Confidence = "inferred";
@@ -277,6 +279,7 @@ namespace WindBot.Agent.Knowledge
                 e.Limit = ReadCountLimit(def, c.Data.Id);
                 e.UsageKey = e.Limit != null ? e.Limit.Key : "card" + c.Data.Id + ":effect" + e.Index;
                 e.DetachCount = s.DetachCount(def.Condition, def.Cost, def.Target, def.Operation);
+                e.BlocksNormalSummonOfAdded = def.Operation != null && s.Mentions(def.Operation, "EFFECT_CANNOT_SUMMON");
 
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
@@ -858,6 +861,7 @@ namespace WindBot.Agent.Knowledge
                     if (e.Categories.Count > 0) sb.AppendLine("  - 분류: " + String.Join(", ", e.Categories.ToArray()));
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " (OATH: 발동 시 소비)" : " (처리 시 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
+                    if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
                     foreach (CardLink l in e.Links)
                         sb.AppendLine("  - " + RoleKo(l.Role) + ": " + l.Relation + FilterText(l.Filter)
                             + (l.Opponent ? " → 상대 카드"

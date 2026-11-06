@@ -222,7 +222,7 @@ namespace WindBot.Agent.Knowledge
 
         // ------------------------------------------------------------------ recursion over the card network
 
-        private ChainResult FromHand(CardEntry card, Ctx ctx, int step)
+        private ChainResult FromHand(CardEntry card, Ctx ctx, int step, bool noNormalSummon = false)
         {
             ChainResult best = new ChainResult();
             if (step >= _w.MaxSteps || --ctx.Budget < 0) return best;
@@ -247,7 +247,7 @@ namespace WindBot.Agent.Knowledge
                 if (r.Value > best.Value) best = r;
             }
             // Normal summon (level 4 or lower monsters without tribute), consumes the summon right.
-            if (ctx.NormalSummon && IsMonster(card) && card.Data.Level <= 4 && !IsExtraType(card))
+            if (ctx.NormalSummon && !noNormalSummon && IsMonster(card) && card.Data.Level <= 4 && !IsExtraType(card))
             {
                 Ctx c = ctx.Clone();
                 c.NormalSummon = false;
@@ -308,7 +308,7 @@ namespace WindBot.Agent.Knowledge
                     Ctx c = ctx.Clone();
                     Take(t, l, c);
                     ChainResult next;
-                    if (arrival == "HAND") next = FromHand(target, c, step + 1);
+                    if (arrival == "HAND") next = FromHand(target, c, step + 1, e.BlocksNormalSummonOfAdded);
                     else if (arrival == "SET") next = new ChainResult(); // set spells/traps: no chain continuation modelled yet
                     else next = Arrive(target, arrival, c, step + 1);
                     if (next.Value > bestNext.Value) bestNext = next;
