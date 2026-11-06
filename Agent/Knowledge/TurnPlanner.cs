@@ -13,6 +13,8 @@ namespace WindBot.Agent.Knowledge
         /// <summary>Monster id and attached material count.</summary>
         public readonly List<KeyValuePair<int, int>> Monsters = new List<KeyValuePair<int, int>>();
         public readonly List<int> Spells = new List<int>();
+        /// <summary>Face-down spells that do nothing until activated (field / continuous / normal spells). Set traps and quick-plays stay in Spells.</summary>
+        public readonly List<int> SetSpells = new List<int>();
         public readonly List<int> Grave = new List<int>();
         public readonly List<int> Banished = new List<int>();
         public bool NormalSummonAvailable = true;
@@ -118,6 +120,8 @@ namespace WindBot.Agent.Knowledge
         public double FlowValue;
         public double EndValue;
         public int HandSpent;
+        /// <summary>The search budget ran out somewhere below this result, so it may be an underestimate (not memoised).</summary>
+        public bool Truncated;
         public readonly List<PlanMove> Moves = new List<PlanMove>();
         public readonly List<string> EndBoard = new List<string>();
 
@@ -148,6 +152,7 @@ namespace WindBot.Agent.Knowledge
         private readonly InterruptModel _int;
         private int _budget;
         private Dictionary<string, PlanResult> _memo;
+        public int BudgetPerFirstMove = 40000;
 
         public TurnPlanner(GameCardDb db, ValueWeights w)
         {
@@ -174,6 +179,7 @@ namespace WindBot.Agent.Knowledge
             public Dictionary<int, int> Orig = new Dictionary<int, int>();
             public List<Mon> Mons = new List<Mon>();
             public List<int> Spells = new List<int>();
+            public List<int> Inactive = new List<int>(); // set spells not yet activated
             public Dictionary<int, int> Grave = new Dictionary<int, int>();
             public Dictionary<int, int> Deck = new Dictionary<int, int>();
             public Dictionary<int, int> Extra = new Dictionary<int, int>();
@@ -189,6 +195,7 @@ namespace WindBot.Agent.Knowledge
                 foreach (var kv in Orig) s.Orig[kv.Key] = kv.Value;
                 foreach (Mon m in Mons) s.Mons.Add(m.Clone());
                 s.Spells.AddRange(Spells);
+                s.Inactive.AddRange(Inactive);
                 foreach (var kv in Grave) s.Grave[kv.Key] = kv.Value;
                 foreach (var kv in Deck) s.Deck[kv.Key] = kv.Value;
                 foreach (var kv in Extra) s.Extra[kv.Key] = kv.Value;
@@ -205,6 +212,7 @@ namespace WindBot.Agent.Knowledge
                 foreach (Mon m in Mons.OrderBy(x => x.Id).ThenBy(x => x.Mats)) sb.Append(m.Id).Append(':').Append(m.Mats).Append(m.Negated ? "n" : "").Append(',');
                 sb.Append('|');
                 foreach (int i in Spells.OrderBy(x => x)) sb.Append(i).Append(',');
+                foreach (int i in Inactive.OrderBy(x => x)) sb.Append('s').Append(i).Append(',');
                 sb.Append('|').Append(Grave.Values.Sum()).Append('|');
                 foreach (string u in Used.OrderBy(x => x, StringComparer.Ordinal)) sb.Append(u).Append(',');
                 sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent);
@@ -245,11 +253,13 @@ namespace WindBot.Agent.Knowledge
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
             foreach (var m in z.Monsters) s.Mons.Add(new Mon { Id = m.Key, Mats = m.Value });
             s.Spells.AddRange(z.Spells);
+            s.Inactive.AddRange(z.SetSpells);
             foreach (int id in z.Grave) s.Add(s.Grave, id, 1);
             // Deck and Extra Deck contents are hidden: deck list minus every copy we can see.
             List<int> seen = new List<int>(z.Hand);
             seen.AddRange(z.Monsters.Select(m => m.Key));
             seen.AddRange(z.Spells);
+            seen.AddRange(z.SetSpells);
             seen.AddRange(z.Grave);
             seen.AddRange(z.Banished);
             foreach (int id in db.MainDeck.Distinct()) s.Deck[id] = Math.Max(0, db.MainDeck.Count(x => x == id) - seen.Count(x => x == id));
@@ -268,7 +278,6 @@ namespace WindBot.Agent.Knowledge
         /// <summary>Best plan from this state, and the best plan for each possible first move.</summary>
         public PlanResult Plan(ZoneSnapshot z, out List<PlanResult> byFirstMove, out PlanResult stop)
         {
-            _budget = 40000;
             _memo = new Dictionary<string, PlanResult>(StringComparer.Ordinal);
             St s = FromSnapshot(z, _db);
             stop = StopResult(s);
@@ -276,6 +285,10 @@ namespace WindBot.Agent.Knowledge
             PlanResult best = stop;
             foreach (var mv in Moves(s, 0))
             {
+                // Every first move gets its own budget: otherwise the first one searched uses it all
+                // and the others are cut after a step or two (and look worse than they are).
+                // Fully searched sub-results are shared through the memo.
+                _budget = BudgetPerFirstMove;
                 PlanResult rest = Search(mv.Value, 1);
                 PlanResult r = Combine(mv.Key, rest, 0);
                 byFirstMove.Add(r);
@@ -303,15 +316,23 @@ namespace WindBot.Agent.Knowledge
             PlanResult cached;
             if (_memo.TryGetValue(key, out cached)) return cached;
             PlanResult best = StopResult(s);
-            if (k < 10 && --_budget > 0)
+            bool truncated = false;
+            if (k < 10)
             {
-                foreach (var mv in Moves(s, k))
+                if (--_budget > 0)
                 {
-                    PlanResult r = Combine(mv.Key, Search(mv.Value, k + 1), k);
-                    if (r.Value > best.Value) best = r;
+                    foreach (var mv in Moves(s, k))
+                    {
+                        PlanResult sub = Search(mv.Value, k + 1);
+                        truncated |= sub.Truncated;
+                        PlanResult r = Combine(mv.Key, sub, k);
+                        if (r.Value > best.Value) best = r;
+                    }
                 }
+                else truncated = Moves(s, k).Any();
             }
-            _memo[key] = best;
+            best.Truncated = truncated;
+            if (!truncated) _memo[key] = best;
             return best;
         }
 
@@ -324,6 +345,7 @@ namespace WindBot.Agent.Knowledge
             r.FlowValue = gain + rest.FlowValue;
             r.EndValue = rest.EndValue;
             r.HandSpent = rest.HandSpent;
+            r.Truncated = rest.Truncated;
             r.EndBoard.AddRange(rest.EndBoard);
             r.Value = r.FlowValue + r.EndValue - _w.EfficiencyPerHandCard * r.HandSpent;
             return r;
@@ -374,6 +396,25 @@ namespace WindBot.Agent.Knowledge
                         double gain = _w.BaseOf("rule_special_summon") + cost + proc.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(id, proc.Index);
                         AddArrival(result, n, m, "SPSUMMON_SUCCESS", new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환", Gain = gain });
                     }
+                    // Hand ignition effects that Normal Summon a monster from the hand without using the turn's Normal Summon
+                    foreach (EffectEntry e in c.Effects.Where(x => x.Kind.StartsWith("기동") && x.Range != null && x.Range.Contains("HAND") && x.Categories.Contains("SUMMON")))
+                    {
+                        if (s.Used.Contains(e.UsageKey) || !Conditions(e, s)) continue;
+                        CardLink pick = e.Links.FirstOrDefault(l => l.Role == "effect" && !l.Opponent && l.Location.Contains("HAND") && l.Targets.Count > 0);
+                        if (pick == null) continue;
+                        foreach (int t in pick.Targets.Distinct())
+                        {
+                            CardEntry tc = _db.Get(t);
+                            if (tc == null || s.Count(s.Hand, t) <= 0 || s.NoNormalSummon.Contains(t) || tc.Data.Level > 4 || _w.Excluded.Contains(t)) continue;
+                            St n = s.Clone();
+                            n.Used.Add(e.UsageKey);
+                            n.TakeFromHand(t);
+                            Mon m = new Mon { Id = t };
+                            n.Mons.Add(m);
+                            double gain = _w.BaseOf("extra_normal_summon") + _w.OffsetOf(id, e.Index);
+                            AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "hand", CardId = id, EffectIndex = e.Index, Text = Name(c) + " 기동(" + e.Index + ") → " + Name(tc) + " 추가 일반 소환", Gain = gain });
+                        }
+                    }
                 }
                 else if ((c.Data.Type & 0x2) != 0) // spells: activate from hand (field spells are just placed)
                 {
@@ -392,6 +433,25 @@ namespace WindBot.Agent.Knowledge
                         foreach (var r in Resolve(s, c, e, null, "spell", true))
                             result.Add(r);
                 }
+            }
+            // Activate a face-down spell (e.g. a field spell set by an effect): it only works face-up
+            foreach (int id in s.Inactive.Distinct().ToList())
+            {
+                CardEntry c = _db.Get(id);
+                if (c == null || _w.Excluded.Contains(id)) continue;
+                EffectEntry act = c.Effects.FirstOrDefault(x => x.Kind.StartsWith("카드의 발동"));
+                if (act == null || s.Used.Contains(act.UsageKey) || !Conditions(act, s)) continue;
+                St b = s.Clone();
+                b.Inactive.Remove(id);
+                b.Spells.Add(id);
+                bool hasFunction = act.Links.Any(l => l.Role == "effect" && ValueModel.FunctionOf(l) != null);
+                if (!hasFunction)
+                {
+                    result.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { new PlanMove { Kind = "setspell", CardId = id, EffectIndex = act.Index, Text = Name(c) + " 세트 카드 발동", Gain = -0.5 /* tie-break: activate once nothing else is left, since face-up spells may restrict summons */ } }, b));
+                    continue;
+                }
+                foreach (var r in Resolve(b, c, act, null, "setspell", false))
+                    result.Add(r);
             }
             // Field ignition effects
             for (int i = 0; i < s.Mons.Count; ++i)
@@ -522,7 +582,9 @@ namespace WindBot.Agent.Knowledge
                 }
                 else if (arrival == "SET")
                 {
-                    n.Spells.Add(t);
+                    // Set traps and quick-plays wait for the opponent's turn; other spells must still be activated.
+                    bool waits = tc != null && ((tc.Data.Type & 0x4) != 0 || (tc.Data.Type & 0x10000) != 0);
+                    if (waits) n.Spells.Add(t); else n.Inactive.Add(t);
                     outs.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { mv }, n));
                 }
                 else
@@ -647,8 +709,9 @@ namespace WindBot.Agent.Knowledge
         private double EndOfTurn(St s, List<string> board)
         {
             double total = 0;
-            bool fieldEmpty = s.Mons.Count == 0 && s.Spells.Count == 0;
-            int spellZones = s.Spells.Count;
+            bool fieldEmpty = s.Mons.Count == 0 && s.Spells.Count == 0 && s.Inactive.Count == 0;
+            int spellZones = s.Spells.Count + s.Inactive.Count;
+            foreach (int id in s.Inactive) { CardEntry ic = _db.Get(id); if (ic != null) board.Add(Name(ic) + "(세트, 미발동 → 방해 0)"); }
             HashSet<string> keys = new HashSet<string>(StringComparer.Ordinal);
 
             // Hand

@@ -176,7 +176,10 @@ namespace WindBot.Agent
                         CardEntry c = _db.Get(o.CardId);
                         EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
                         effectIndex = e != null ? e.Index : 0;
-                        kind = o.Location == (int)CardLocation.Hand ? "spell" : o.Location == (int)CardLocation.MonsterZone ? "ignition" : null;
+                        bool monster = c != null && (c.Data.Type & 0x1) != 0;
+                        kind = o.Location == (int)CardLocation.Hand ? (monster ? "hand" : "spell")
+                             : o.Location == (int)CardLocation.MonsterZone ? "ignition"
+                             : o.Location == (int)CardLocation.SpellZone || o.Location == (int)CardLocation.FieldZone ? "setspell" : null;
                         break;
                     }
             }
@@ -261,6 +264,14 @@ namespace WindBot.Agent
             513 /* XyzMaterial */, 519 /* RemoveXyz */, 531 /* Tribute */, 532 /* DeattachFrom */
         };
 
+        /// <summary>Hints where the picked card is removed: as a target, an opponent's card is the point.</summary>
+        private static readonly HashSet<long> RemovalHints = new HashSet<long>
+        {
+            502 /* Destroy */, 503 /* Remove */, 504 /* ToGrave */, 505 /* RtoHand */, 507 /* ToDeck */
+        };
+
+        private const double OpponentTargetBase = 50;
+
         /// <summary>
         /// Estimates the value policy decides by, for requests other than the planned main-phase actions:
         /// main-phase extras (battle, setting traps), battle commands, own optional triggers, chain responses, card picks.
@@ -294,6 +305,7 @@ namespace WindBot.Agent
                 case RequestKind.Chain:
                     {
                         bool opponentActed = _duel.LastChainPlayer == 1;
+                        if (opponentActed || _duel.Player == 1) r.NoExplore = true; // a random pass or a wasted interruption costs the game
                         foreach (DecisionOption o in r.Options)
                         {
                             if (o.Action == "Pass") { o.Estimate = opponentActed ? 0 : 1; continue; }
@@ -313,8 +325,21 @@ namespace WindBot.Agent
                     {
                         r.PreferLow = GiveUpHints.Contains(r.Hint);
                         ZoneSnapshot z = _zones.Snapshot();
+                        bool removal = RemovalHints.Contains(r.Hint);
+                        bool anyOpponent = r.Options.Any(o => o.Controller == 1);
+                        if (removal && anyOpponent) r.PreferLow = true; // destroy / banish / bounce: the opponent's cards first
                         foreach (DecisionOption o in r.Options)
-                            if (o.CardId != 0 && o.Controller == 0) o.Estimate = _planner.Worth(z, o.CardId);
+                        {
+                            if (o.Controller == 0 && o.CardId != 0) o.Estimate = _planner.Worth(z, o.CardId);
+                            else if (o.Controller == 1 && removal)
+                            {
+                                // Removing an opponent's card: the more it is worth to them, the earlier we pick it.
+                                double threat = 0;
+                                if (o.CardId != 0 && _db.EnsureCard(o.CardId, true) != null) threat = _planner.Worth(z, o.CardId);
+                                o.Estimate = -(OpponentTargetBase + Math.Max(0, threat));
+                            }
+                        }
+                        if (anyOpponent) r.NoExplore = true;
                         break;
                     }
             }

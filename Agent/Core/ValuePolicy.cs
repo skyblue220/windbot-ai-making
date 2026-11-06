@@ -34,7 +34,7 @@ namespace WindBot.Agent.Core
             LastExplored = false;
             List<int> scored = Enumerable.Range(0, request.Options.Count).Where(i => !double.IsNaN(request.Options[i].Estimate)).ToList();
             bool canScore = scored.Count > 0 && (request.Shape == RequestShape.One || request.Shape == RequestShape.Many);
-            if (!canScore || _rand.NextDouble() < Explore)
+            if (!canScore || (!request.NoExplore && _rand.NextDouble() < Explore))
             {
                 LastExplored = canScore;
                 return _random.Decide(request, state);
@@ -52,6 +52,15 @@ namespace WindBot.Agent.Core
 
             // Many: estimated options first (best first), then the rest in random order.
             int n = request.Options.Count;
+            if (request.Min == 0 && request.Cancelable)
+            {
+                // Enough is already selected (e.g. Xyz materials after the minimum): stop when giving up cards,
+                // otherwise take one more only if it is worth something.
+                int top = scored.OrderByDescending(key).First();
+                if (request.PreferLow || request.Options[top].Estimate <= 0) { d.Canceled = true; return d; }
+                d.Indices.Add(top);
+                return d;
+            }
             int count = Math.Min(Math.Max(request.Min, 1), Math.Min(request.Max, n));
             if (count <= 0) { d.Canceled = request.Cancelable; return d; }
             List<int> order = scored.OrderByDescending(key).ToList();

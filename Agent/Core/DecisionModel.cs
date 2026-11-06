@@ -88,6 +88,8 @@ namespace WindBot.Agent.Core
         public int Quantity;
         /// <summary>The picked cards are given up (cost, discard, material, release): prefer the lowest estimates.</summary>
         public bool PreferLow;
+        /// <summary>Never answer at random (e.g. targets among the opponent's cards, responses on the opponent's turn).</summary>
+        public bool NoExplore;
     }
 
     public sealed class Decision

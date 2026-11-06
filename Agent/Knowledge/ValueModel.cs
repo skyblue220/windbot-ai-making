@@ -26,6 +26,7 @@ namespace WindBot.Agent.Knowledge
             { "set_from_deck", 30 },
             { "draw", 25 },
             { "rule_special_summon", 20 },
+            { "extra_normal_summon", 20 }, // provisional: a summon from hand that keeps the turn's Normal Summon (e.g. Sakitama)
             { "grave_to_deck", 10 },
             { "attach_from_grave", 10 },
             { "attach_from_deck", 10 }, // not in the agreed table yet: same as grave → material for now

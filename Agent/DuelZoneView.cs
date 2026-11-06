@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using WindBot.Agent.Knowledge;
 using WindBot.Game;
+using YGOSharp.OCGWrapper.Enums;
 
 namespace WindBot.Agent
 {
@@ -37,7 +38,13 @@ namespace WindBot.Agent
             foreach (ClientCard c in Self.Hand) if (c != null && c.Id != 0) z.Hand.Add(c.Id);
             foreach (ClientCard c in Self.MonsterZone)
                 if (c != null && c.Id != 0) z.Monsters.Add(new KeyValuePair<int, int>(c.Id, c.Overlays != null ? c.Overlays.Count : 0));
-            foreach (ClientCard c in Self.SpellZone) if (c != null && c.Id != 0) z.Spells.Add(c.Id);
+            foreach (ClientCard c in Self.SpellZone)
+            {
+                if (c == null || c.Id == 0) continue;
+                // A face-down spell other than a quick-play does nothing until it is activated.
+                bool waits = c.HasType(CardType.Trap) || c.HasType(CardType.QuickPlay);
+                if (c.IsFacedown() && !waits) z.SetSpells.Add(c.Id); else z.Spells.Add(c.Id);
+            }
             foreach (ClientCard c in Self.Graveyard) if (c != null && c.Id != 0) z.Grave.Add(c.Id);
             foreach (ClientCard c in Self.Banished) if (c != null && c.Id != 0) z.Banished.Add(c.Id);
             return z;
