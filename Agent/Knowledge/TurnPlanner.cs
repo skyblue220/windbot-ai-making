@@ -286,6 +286,15 @@ namespace WindBot.Agent.Knowledge
 
         public bool Exhausted { get { return _budget <= 0; } }
 
+        /// <summary>Worth of each of our cards right now (unused functions + interruption value), for picking what to take or give up.</summary>
+        public double Worth(ZoneSnapshot z, int cardId)
+        {
+            CardEntry c = _db.Get(cardId);
+            if (c == null) return 0;
+            if (_w.Excluded.Contains(cardId)) return -1;
+            return StaticValue(FromSnapshot(z, _db), c);
+        }
+
         // ---------------------------------------------------------- search
 
         private PlanResult Search(St s, int k)

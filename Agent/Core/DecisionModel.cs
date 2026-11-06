@@ -86,6 +86,8 @@ namespace WindBot.Agent.Core
         public int Target;
         public bool ExactSum;
         public int Quantity;
+        /// <summary>The picked cards are given up (cost, discard, material, release): prefer the lowest estimates.</summary>
+        public bool PreferLow;
     }
 
     public sealed class Decision

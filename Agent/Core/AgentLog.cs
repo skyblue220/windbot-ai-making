@@ -35,10 +35,10 @@ namespace WindBot.Agent.Core
             Write(j);
         }
 
-        public void Decision(DecisionRequest request, StateSnapshot state, Decision decision)
+        public void Decision(DecisionRequest request, StateSnapshot state, Decision decision, bool explored = false)
         {
             Json j = Begin("decision");
-            j.Str("kind", request.Kind.ToString()).Str("shape", request.Shape.ToString())
+            j.Str("kind", request.Kind.ToString()).Str("shape", request.Shape.ToString()).Bool("explored", explored).Bool("preferLow", request.PreferLow)
              .Num("min", request.Min).Num("max", request.Max).Bool("cancelable", request.Cancelable)
              .Num("hint", request.Hint).Num("description", request.Description).Num("sourceCardId", request.SourceCardId);
             if (request.Shape == RequestShape.Sum) j.Num("target", request.Target).Bool("exactSum", request.ExactSum);

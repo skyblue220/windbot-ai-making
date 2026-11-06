@@ -87,6 +87,9 @@ namespace WindBot.Agent.Knowledge
         /// <summary>Penalty per hand card spent, for the end-of-turn interruption evaluation (VALUE_MODEL.md 7.5). Provisional; not used until that evaluation exists.</summary>
         public double EfficiencyPerHandCard = 10;
 
+        /// <summary>Probability that the value policy picks a random legal answer instead (exploration for learning).</summary>
+        public double Explore = 0.1;
+
         /// <summary>Cards left out of every evaluation (e.g. put in the deck by mistake). Key in the file: "exclude.&lt;cardId&gt;": 1.</summary>
         public readonly HashSet<int> Excluded = new HashSet<int>();
 
@@ -131,6 +134,7 @@ namespace WindBot.Agent.Knowledge
                 if (key == "gamma") w.Gamma = v;
                 else if (key == "maxSteps") w.MaxSteps = (int)v;
                 else if (key == "efficiencyPerHandCard") w.EfficiencyPerHandCard = v;
+                else if (key == "explore") w.Explore = v;
                 else if (key.StartsWith("exclude."))
                 {
                     int id;
@@ -149,7 +153,8 @@ namespace WindBot.Agent.Knowledge
             StringBuilder sb = new StringBuilder("{\n");
             sb.Append("  \"gamma\": ").Append(Gamma.ToString(CultureInfo.InvariantCulture)).Append(",\n");
             sb.Append("  \"maxSteps\": ").Append(MaxSteps.ToString(CultureInfo.InvariantCulture)).Append(",\n");
-            sb.Append("  \"efficiencyPerHandCard\": ").Append(EfficiencyPerHandCard.ToString(CultureInfo.InvariantCulture));
+            sb.Append("  \"efficiencyPerHandCard\": ").Append(EfficiencyPerHandCard.ToString(CultureInfo.InvariantCulture)).Append(",\n");
+            sb.Append("  \"explore\": ").Append(Explore.ToString(CultureInfo.InvariantCulture));
             foreach (int id in Excluded) sb.Append(",\n  \"exclude.").Append(id.ToString(CultureInfo.InvariantCulture)).Append("\": 1");
             foreach (var kv in Base) sb.Append(",\n  \"base.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             foreach (var kv in CardInt) sb.Append(",\n  \"").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));

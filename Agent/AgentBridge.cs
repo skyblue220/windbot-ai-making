@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using WindBot.Agent.Core;
 using WindBot.Agent.Knowledge;
@@ -56,7 +57,7 @@ namespace WindBot.Agent
             int seed = Environment.TickCount ^ Guid.NewGuid().GetHashCode();
             string duelId = Guid.NewGuid().ToString("N");
             _duelId = duelId;
-            _policy = new RandomPolicy(seed);
+            _policy = new ValuePolicy(seed);
             _log = new AgentLog(System.IO.Path.Combine("logs", "agent"), duelId);
             _log.Header(duelId, _buildId, _policy.Name, seed, _deck);
             _duelFinished = false;
@@ -79,6 +80,8 @@ namespace WindBot.Agent
                 _db = CardDbFactory.Build(_deckList);
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
                 _planner = new TurnPlanner(_db, _values.Weights);
+                ValuePolicy vp = _policy as ValuePolicy;
+                if (vp != null) vp.Explore = _values.Weights.Explore;
                 _zones = new DuelZoneView(_duel, _db);
                 WriteCardDb();
             }
@@ -237,20 +240,97 @@ namespace WindBot.Agent
                     sb.Append(" | 효과 ").Append(card.Effects.Count).Append("개, 이 카드를 불러오는 카드 ").Append(card.LinkedFrom.Count).Append("개 연결");
                 }
 
-                // Value estimate for own actions (finite geometric chain sum). Display only: the policy is still random.
+                // Chain value of own actions (finite geometric sum): information only; decisions use the estimates below.
                 if (_values != null && o.Controller != 1)
                 {
                     ChainResult v = null;
                     if (effect != null && (o.Action == "Activate" || o.Action == "SpSummon")) v = _values.ValueOfEffect(o.CardId, effect, _zones);
                     else if (o.Action == "Summon") v = _values.ValueOfNormalSummon(o.CardId, _zones);
-                    if (v != null)
-                    {
-                        o.Estimate = v.Value;
-                        sb.Append(" | 가치 ").Append(v.Describe());
-                    }
+                    if (v != null) sb.Append(" | 흐름 가치 ").Append(v.Describe());
                 }
                 o.Info = sb.ToString();
             }
+
+            try { Estimate(r, stop); }
+            catch (Exception ex) { _log.Error("estimate:" + r.Kind, ex.ToString()); }
+        }
+
+        private static readonly HashSet<long> GiveUpHints = new HashSet<long>
+        {
+            500 /* Release */, 501 /* Discard */, 503 /* Remove */, 504 /* ToGrave */, 507 /* ToDeck */,
+            513 /* XyzMaterial */, 519 /* RemoveXyz */, 531 /* Tribute */, 532 /* DeattachFrom */
+        };
+
+        /// <summary>
+        /// Estimates the value policy decides by, for requests other than the planned main-phase actions:
+        /// main-phase extras (battle, setting traps), battle commands, own optional triggers, chain responses, card picks.
+        /// </summary>
+        private void Estimate(DecisionRequest r, PlanResult stop)
+        {
+            if (_planner == null) return;
+            switch (r.Kind)
+            {
+                case RequestKind.Idle:
+                    if (stop == null) return;
+                    foreach (DecisionOption o in r.Options)
+                    {
+                        if (!double.IsNaN(o.Estimate)) continue;
+                        if (o.Action == "ToBattlePhase") o.Estimate = stop.Value + 1; // attacking is how the game is won
+                        else if (o.Action == "SetSpell" && IsSetInterrupt(o.CardId)) o.Estimate = stop.Value + 1; // the plan counts it as set
+                    }
+                    break;
+
+                case RequestKind.Battle:
+                    foreach (DecisionOption o in r.Options)
+                        o.Estimate = o.Action == "Attack" ? 1 : o.Action == "Activate" ? double.NaN : 0;
+                    break;
+
+                case RequestKind.EffectYn:
+                    // Our own optional triggers: the plan assumes we use them.
+                    r.Options[0].Estimate = 1;
+                    r.Options[1].Estimate = 0;
+                    break;
+
+                case RequestKind.Chain:
+                    {
+                        bool opponentActed = _duel.LastChainPlayer == 1;
+                        foreach (DecisionOption o in r.Options)
+                        {
+                            if (o.Action == "Pass") { o.Estimate = opponentActed ? 0 : 1; continue; }
+                            CardEntry c = _db.Get(o.CardId);
+                            EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
+                            if (c == null || e == null) continue;
+                            if (e.Kind.StartsWith("유발 효과")) o.Estimate = 2; // own trigger offered in a chain window
+                            else if (opponentActed && _planner.Interrupts.IsInterrupt(c, e))
+                                o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                        }
+                        break;
+                    }
+
+                case RequestKind.SelectCard:
+                case RequestKind.SelectUnselect:
+                case RequestKind.Tribute:
+                    {
+                        r.PreferLow = GiveUpHints.Contains(r.Hint);
+                        ZoneSnapshot z = _zones.Snapshot();
+                        foreach (DecisionOption o in r.Options)
+                            if (o.CardId != 0 && o.Controller == 0) o.Estimate = _planner.Worth(z, o.CardId);
+                        break;
+                    }
+            }
+        }
+
+        /// <summary>A trap / quick-play in hand that the end-of-turn evaluation counts as set (not one better kept in hand).</summary>
+        private bool IsSetInterrupt(int cardId)
+        {
+            CardEntry c = _db.Get(cardId);
+            if (c == null || _values.Weights.Excluded.Contains(cardId)) return false;
+            bool trap = (c.Data.Type & 0x4) != 0, quickPlay = (c.Data.Type & 0x10000) != 0;
+            if (!trap && !quickPlay) return false;
+            ZoneSnapshot z = _zones.Snapshot();
+            bool fieldEmpty = z.Monsters.Count == 0 && z.Spells.Count == 0;
+            if (trap && c.TrapActInHand && (!c.TrapActInHandNeedsEmptyField || fieldEmpty)) return false;
+            return c.Effects.Any(e => e.Kind.StartsWith("카드의 발동") && _planner.Interrupts.IsInterrupt(c, e) && _planner.Interrupts.TypeValue(c, e) > 0);
         }
 
         // ---------------------------------------------------------------- core call
@@ -269,7 +349,8 @@ namespace WindBot.Agent
                 _log.Error("policy:" + request.Kind, ex.ToString());
                 throw;
             }
-            _log.Decision(request, state, decision);
+            ValuePolicy vp = _policy as ValuePolicy;
+            _log.Decision(request, state, decision, vp != null && vp.LastExplored);
             return decision;
         }
 
