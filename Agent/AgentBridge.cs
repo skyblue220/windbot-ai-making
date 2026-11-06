@@ -122,15 +122,20 @@ namespace WindBot.Agent
             s.Phase = _duel.Phase.ToString();
             s.TurnPlayer = _duel.Player;
             s.IsFirst = _duel.IsFirst;
-            FillPlayer(s.Self, _duel.Fields[0]);
-            FillPlayer(s.Opponent, _duel.Fields[1]);
+            // Before the duel starts (rock-paper-scissors, going first) the fields may not exist yet.
+            if (_duel.Fields != null && _duel.Fields.Length >= 2)
+            {
+                FillPlayer(s.Self, _duel.Fields[0]);
+                FillPlayer(s.Opponent, _duel.Fields[1]);
+            }
             return s;
         }
 
         private static void FillPlayer(PlayerView view, ClientField field)
         {
+            if (field == null) return;
             view.LifePoints = field.LifePoints;
-            view.DeckCount = field.Deck.Count;
+            view.DeckCount = field.Deck != null ? field.Deck.Count : 0;
             AddIds(view.Hand, field.Hand);
             AddIds(view.Monsters, field.MonsterZone);
             AddIds(view.Spells, field.SpellZone);
@@ -141,6 +146,7 @@ namespace WindBot.Agent
 
         private static void AddIds(List<int> target, IEnumerable<ClientCard> cards)
         {
+            if (cards == null) return;
             foreach (ClientCard c in cards)
                 if (c != null) target.Add(c.Id);
         }
