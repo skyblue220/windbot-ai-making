@@ -21,6 +21,10 @@
     <Compile Include="..\Game\AI\Decks\*.cs" />
     <Compile Include="..\Game\DecksManager.cs" />
     <Compile Include="..\Game\GameBehavior.cs" />
+    <Compile Include="..\Game\IGameDecider.cs" />
+    <Compile Include="..\Game\LegacyDecider.cs" />
+    <Compile Include="..\Agent\AgentBridge.cs" />
+    <Compile Include="..\Agent\Core\*.cs" />
     <Compile Include="..\Game\GameClient.cs" />
     <Compile Include="..\Game\GamePacketFactory.cs" />
     <Compile Include="..\Game\Room.cs" />
