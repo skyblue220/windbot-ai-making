@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using WindBot.Agent.Core;
+using WindBot.Agent.Knowledge;
 using WindBot.Game;
 using YGOSharp.OCGWrapper.Enums;
 
@@ -33,6 +35,10 @@ namespace WindBot.Agent
         private IDecisionPolicy _policy;
         private AgentLog _log;
         private bool _duelFinished;
+        private string _duelId;
+        private Deck _deckList;
+        private GameCardDb _db;
+        private int _pendingRuleSummon;
 
         public AgentBridge(Duel duel, string deck)
         {
@@ -46,6 +52,7 @@ namespace WindBot.Agent
         {
             int seed = Environment.TickCount ^ Guid.NewGuid().GetHashCode();
             string duelId = Guid.NewGuid().ToString("N");
+            _duelId = duelId;
             _policy = new RandomPolicy(seed);
             _log = new AgentLog(System.IO.Path.Combine("logs", "agent"), duelId);
             _log.Header(duelId, _buildId, _policy.Name, seed, _deck);
@@ -53,11 +60,112 @@ namespace WindBot.Agent
             Logger.WriteLine("Agent log: " + _log.Path);
         }
 
+        // ---------------------------------------------------------------- per-game card DB
+
+        public void OnDeckLoaded(Deck deck)
+        {
+            _deckList = deck;
+            BuildCardDb();
+        }
+
+        private void BuildCardDb()
+        {
+            if (_deckList == null) return;
+            try
+            {
+                _db = CardDbFactory.Build(_deckList);
+                WriteCardDb("start");
+            }
+            catch (Exception ex)
+            {
+                _db = null;
+                _log.Error("carddb", ex.ToString());
+            }
+        }
+
+        private void WriteCardDb(string tag)
+        {
+            if (_db == null) return;
+            try
+            {
+                string path = _log.Path.Substring(0, _log.Path.Length - ".jsonl".Length) + "_carddb_" + tag + ".md";
+                System.IO.File.WriteAllText(path, _db.Describe(InstancesOf), new System.Text.UTF8Encoding(false));
+                _log.CardDb(tag, path, _db.Cards.Count);
+            }
+            catch (Exception ex)
+            {
+                _log.Error("carddb-write", ex.ToString());
+            }
+        }
+
+        /// <summary>Where the copies of a card are right now (own side), with current stats on the field.</summary>
+        private string InstancesOf(int cardId)
+        {
+            if (_duel.Fields == null || _duel.Fields[0] == null || _duel.Fields[0].Hand == null) return null;
+            List<string> parts = new List<string>();
+            for (int p = 0; p < 2; ++p)
+            {
+                ClientField f = _duel.Fields[p];
+                string side = p == 0 ? "" : "상대 ";
+                int hand = Count(f.Hand, cardId), grave = Count(f.Graveyard, cardId), banished = Count(f.Banished, cardId), extra = Count(f.ExtraDeck, cardId);
+                if (hand > 0) parts.Add(side + "패 " + hand);
+                foreach (ClientCard c in f.MonsterZone)
+                    if (c != null && c.Id == cardId)
+                        parts.Add(side + "몬스터 존 " + c.Sequence + "(" + (c.IsFaceup() ? "앞면" : "뒷면") + ", 공 " + c.Attack + "/수 " + c.Defense
+                                  + (c.Overlays != null && c.Overlays.Count > 0 ? ", 소재 " + c.Overlays.Count : "") + ")");
+                foreach (ClientCard c in f.SpellZone)
+                    if (c != null && c.Id == cardId) parts.Add(side + "마법·함정 존 " + c.Sequence + "(" + (c.IsFaceup() ? "앞면" : "세트") + ")");
+                if (grave > 0) parts.Add(side + "묘지 " + grave);
+                if (banished > 0) parts.Add(side + "제외 " + banished);
+                if (p == 0 && extra > 0) parts.Add("엑스트라 " + extra);
+            }
+            return String.Join(", ", parts.ToArray());
+        }
+
+        private static int Count(IEnumerable<ClientCard> cards, int id)
+        {
+            int n = 0;
+            if (cards != null) foreach (ClientCard c in cards) if (c != null && c.Id == id) n++;
+            return n;
+        }
+
+        /// <summary>Attaches card-DB knowledge to each option so the policy (and the log) sees it.</summary>
+        private void Annotate(DecisionRequest r)
+        {
+            if (_db == null) return;
+            foreach (DecisionOption o in r.Options)
+            {
+                if (o.CardId == 0) continue;
+                CardEntry card = _db.EnsureCard(o.CardId, o.Controller == 1);
+                if (card == null) continue;
+                StringBuilder sb = new StringBuilder(card.Data.Name);
+                EffectEntry effect = o.Action == "Activate" ? _db.FindEffect(card, o.Description) : null;
+                if (effect == null && o.Action == "SpSummon" && o.Location == (int)CardLocation.Hand)
+                    effect = card.Effects.Find(e => e.Kind.StartsWith("룰"));
+                if (effect != null)
+                {
+                    sb.Append(" | 효과 ").Append(effect.Index).Append(": ").Append(effect.Kind);
+                    if (!String.IsNullOrEmpty(effect.Label)) sb.Append(" — ").Append(effect.Label);
+                    string usage = _db.UsageText(o.Controller == 1 ? 1 : 0, effect);
+                    if (usage.Length > 0) sb.Append(" | 이번 턴: ").Append(usage);
+                    foreach (CardLink l in effect.Links)
+                        if (l.Targets.Count > 0)
+                            sb.Append(" | ").Append(l.Relation).Append(" → ").Append(String.Join(", ", l.Targets.ConvertAll(id => _db.Get(id).Data.Name).ToArray()));
+                }
+                else if (card.LinkedFrom.Count > 0 || card.Effects.Count > 0)
+                {
+                    sb.Append(" | 효과 ").Append(card.Effects.Count).Append("개, 이 카드를 불러오는 카드 ").Append(card.LinkedFrom.Count).Append("개 연결");
+                }
+                o.Info = sb.ToString();
+            }
+        }
+
         // ---------------------------------------------------------------- core call
 
         private Decision Ask(DecisionRequest request)
         {
             StateSnapshot state = Snapshot();
+            Annotate(request);
             Decision decision;
             try
             {
@@ -128,6 +236,12 @@ namespace WindBot.Agent
                 FillPlayer(s.Self, _duel.Fields[0]);
                 FillPlayer(s.Opponent, _duel.Fields[1]);
             }
+            if (_db != null)
+            {
+                // Opponent cards enter the card DB the first time they become visible.
+                foreach (List<int> ids in new[] { s.Opponent.Hand, s.Opponent.Monsters, s.Opponent.Spells, s.Opponent.Graveyard, s.Opponent.Banished })
+                    foreach (int id in ids) _db.EnsureCard(id, true);
+            }
             return s;
         }
 
@@ -158,7 +272,11 @@ namespace WindBot.Agent
 
         public void OnStart()
         {
-            if (_duelFinished) BeginDuelLog();
+            if (_duelFinished)
+            {
+                BeginDuelLog();
+                BuildCardDb(); // a new game gets a fresh card DB
+            }
         }
 
         public void OnDraw(int player) { }
@@ -167,9 +285,32 @@ namespace WindBot.Agent
         public void OnMove(ClientCard card, int previousControler, int previousLocation, int currentControler, int currentLocation) { }
         public void OnDirectAttack(ClientCard card) { }
         public void OnChaining(ClientCard card, int player) { }
-        public void OnChainSolved(int chainIndex) { }
-        public void OnChainEnd() { }
-        public void OnSpSummoned() { }
+
+        public void OnChainSolved(int chainIndex)
+        {
+            if (_db != null) _db.OnChainSolved(chainIndex);
+        }
+
+        public void OnChainNegated(int chainIndex)
+        {
+            if (_db != null) _db.OnChainNegated(chainIndex);
+        }
+
+        public void OnChainDisabled(int chainIndex)
+        {
+            if (_db != null) _db.OnChainDisabled(chainIndex);
+        }
+
+        public void OnChainEnd()
+        {
+            if (_db != null) _db.OnChainEnd();
+        }
+
+        public void OnSpSummoned()
+        {
+            if (_db != null && _pendingRuleSummon != 0) _db.OnRuleSummon(_pendingRuleSummon);
+            _pendingRuleSummon = 0;
+        }
         public void OnPlayerHint(int player, int hintType, ulong description) { }
         public void OnHintZone(int player, int zone) { }
         public void OnReceivingAnnouce(int player, long data) { }
@@ -178,11 +319,32 @@ namespace WindBot.Agent
         public void OnGameMessage(GameMessage message)
         {
             _log.Message(message.ToString(), _duel.Turn, _duel.Phase.ToString());
+            if (_db == null) return;
+            try
+            {
+                if (message == GameMessage.Chaining && _duel.CurrentChainInfo.Count > 0)
+                {
+                    // GameBehavior has just appended the new chain link.
+                    ChainInfo info = _duel.CurrentChainInfo[_duel.CurrentChainInfo.Count - 1];
+                    int id = info.RelatedCard != null && info.RelatedCard.Id != 0 ? info.RelatedCard.Id : info.ActivateId;
+                    _db.OnChaining(_duel.CurrentChainInfo.Count, info.ActivatePlayer, id, info.ActivateDescription);
+                }
+                else if (message == GameMessage.NewTurn)
+                {
+                    if (_db.Turn > 0) WriteCardDb("turn" + _db.Turn);
+                    _db.OnNewTurn(_duel.Turn);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error("carddb-event:" + message, ex.ToString());
+            }
         }
 
         public void OnWin(int result)
         {
             _log.Result(result == 2 ? "Draw" : result == 0 ? "Win" : "Lose", _duel.Turn);
+            WriteCardDb("end");
             _duelFinished = true;
         }
 
@@ -241,8 +403,18 @@ namespace WindBot.Agent
                 actions.Add(new MainPhaseAction(MainPhaseAction.MainAction.ToEndPhase));
             }
 
+            _pendingRuleSummon = 0;
             int chosen = AskOne(r);
-            return chosen < 0 ? new MainPhaseAction(MainPhaseAction.MainAction.ToEndPhase) : actions[chosen];
+            if (chosen < 0) return new MainPhaseAction(MainPhaseAction.MainAction.ToEndPhase);
+
+            // Bookkeeping the engine does not report: rule summons from hand and the normal summon.
+            DecisionOption picked = r.Options[chosen];
+            if (_db != null)
+            {
+                if (picked.Action == "SpSummon" && picked.Location == (int)CardLocation.Hand) _pendingRuleSummon = picked.CardId;
+                if (picked.Action == "Summon" || picked.Action == "SetMonster") _db.OnNormalSummon(picked.CardId);
+            }
+            return actions[chosen];
         }
 
         private static void AddIdle(DecisionRequest r, List<MainPhaseAction> actions, IList<ClientCard> cards,

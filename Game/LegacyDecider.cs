@@ -13,6 +13,9 @@ namespace WindBot.Game
             _ai = ai;
         }
 
+        public void OnDeckLoaded(Deck deck) { }
+        public void OnChainNegated(int chainIndex) { }
+        public void OnChainDisabled(int chainIndex) { }
         public void OnJoinGame() { _ai.OnJoinGame(); }
         public void OnDeckError(string card) { _ai.OnDeckError(card); }
         public void OnStart() { _ai.OnStart(); }

@@ -85,6 +85,7 @@ namespace WindBot.Game
             if(Game.DeckFile != null)
                 Logger.WriteLine("Custom deck provided, loading: " + Game.DeckFile + ".");
             Deck = Deck.Load(Game.DeckFile ?? deckName);
+            _decider.OnDeckLoaded(Deck);
 
             _select_hint = 0;
         }
@@ -883,12 +884,14 @@ namespace WindBot.Game
         {
             int chainIndex = packet.ReadByte();
             _duel.NegatedChainIndexList.Add(chainIndex);
+            _decider.OnChainNegated(chainIndex);
         }
 
         private void OnChainDisabled(BinaryReader packet)
         {
             int chainIndex = packet.ReadByte();
             _duel.NegatedChainIndexList.Add(chainIndex);
+            _decider.OnChainDisabled(chainIndex);
         }
 
         private void OnChainSolved(BinaryReader packet)

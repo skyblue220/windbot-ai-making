@@ -64,6 +64,8 @@
     <Compile Include="Game\LegacyDecider.cs" />
     <Compile Include="Agent\AgentBridge.cs" />
     <Compile Include="Agent\Core\*.cs" />
+    <Compile Include="Agent\Knowledge\*.cs" />
+    <Compile Include="Agent\CardDbFactory.cs" />
     <Compile Include="Game\GameClient.cs" />
     <Compile Include="Game\GamePacketFactory.cs" />
     <Compile Include="Game\Room.cs" />

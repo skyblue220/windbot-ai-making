@@ -63,6 +63,8 @@ namespace WindBot.Agent.Core
         public int Param2;
         /// <summary>Kind-specific value (e.g. zone bit, position flag, announced id/number).</summary>
         public long Value;
+        /// <summary>Readable knowledge attached from the per-game card DB (effect, usage this turn, linked cards).</summary>
+        public string Info;
     }
 
     public sealed class DecisionRequest

@@ -63,6 +63,13 @@ namespace WindBot.Agent.Core
             Write(j);
         }
 
+        public void CardDb(string tag, string path, int cards)
+        {
+            Json j = Begin("carddb");
+            j.Str("tag", tag).Str("path", path).Num("cards", cards);
+            Write(j);
+        }
+
         public void Error(string where, string detail)
         {
             Json j = Begin("error");
@@ -98,6 +105,7 @@ namespace WindBot.Agent.Core
                 j.Str("action", o.Action).Num("cardId", o.CardId).Num("controller", o.Controller)
                  .Num("location", o.Location).Num("sequence", o.Sequence).Num("position", o.Position)
                  .Num("description", o.Description).Num("param1", o.Param1).Num("param2", o.Param2).Num("value", o.Value);
+                if (o.Info != null) j.Str("info", o.Info);
                 sb.Append(j.Close());
             }
             return sb.Append(']').ToString();

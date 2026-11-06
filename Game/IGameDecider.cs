@@ -11,6 +11,10 @@ namespace WindBot.Game
     public interface IGameDecider
     {
         // Lifecycle and notifications
+        /// <summary>The bot's own deck is known (before rock-paper-scissors).</summary>
+        void OnDeckLoaded(Deck deck);
+        void OnChainNegated(int chainIndex);
+        void OnChainDisabled(int chainIndex);
         void OnJoinGame();
         void OnDeckError(string card);
         void OnStart();

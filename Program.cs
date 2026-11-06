@@ -14,6 +14,9 @@ namespace WindBot
     {
         public static string AssetPath;
 
+        /// <summary>cards.cdb files that loaded successfully (used by the agent's per-game card DB).</summary>
+        public static readonly System.Collections.Generic.List<string> LoadedDatabasePaths = new System.Collections.Generic.List<string>();
+
         internal static Random Rand;
 
         internal static void Main(string[] args)
@@ -31,6 +34,14 @@ namespace WindBot
             string databasePaths = Config.GetString("DbPaths");
 
             InitDatas(databasePath, databasePaths);
+
+            // Offline: build the agent's per-game card DB for a deck and write it as a readable file.
+            string dumpDeck = Config.GetString("AgentDbDump");
+            if (dumpDeck != null)
+            {
+                WindBot.Agent.CardDbFactory.Dump(dumpDeck, Config.GetString("AgentDbOut", "carddb_" + dumpDeck + ".md"));
+                return;
+            }
 
             bool serverMode = Config.GetBool("ServerMode", false);
 
@@ -97,6 +108,7 @@ namespace WindBot
                         NamedCardsManager.LoadDatabase(absPath);
                         Logger.DebugWriteLine("Loaded database: " + absPath + ".");
                         loadedone = true;
+                        LoadedDatabasePaths.Add(absPath);
                     }
                 } catch (Exception ex)
                 {
