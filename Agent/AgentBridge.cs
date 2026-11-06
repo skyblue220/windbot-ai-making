@@ -38,6 +38,8 @@ namespace WindBot.Agent
         private string _duelId;
         private Deck _deckList;
         private GameCardDb _db;
+        private ValueModel _values;
+        private DuelZoneView _zones;
         private int _pendingRuleSummon;
 
         public AgentBridge(Duel duel, string deck)
@@ -74,6 +76,8 @@ namespace WindBot.Agent
             try
             {
                 _db = CardDbFactory.Build(_deckList);
+                _values = new ValueModel(_db, CardDbFactory.LoadWeights());
+                _zones = new DuelZoneView(_duel, _db);
                 WriteCardDb();
             }
             catch (Exception ex)
@@ -110,7 +114,9 @@ namespace WindBot.Agent
                 string path = LogBase + "_state.md";
                 if (!System.IO.File.Exists(path))
                     System.IO.File.WriteAllText(path, "# 듀얼 상태 기록\n\n", new UTF8Encoding(false));
-                System.IO.File.AppendAllText(path, _db.DescribeState(title, InstancesOf), new UTF8Encoding(false));
+                string text = _db.DescribeState(title, InstancesOf);
+                if (_values != null) text += "### 패 카드 가치 (유한 등비 합)\n" + CardDbFactory.DescribeValues(_db, _values, _zones);
+                System.IO.File.AppendAllText(path, text, new UTF8Encoding(false));
             }
             catch (Exception ex)
             {
@@ -175,6 +181,19 @@ namespace WindBot.Agent
                 else if (card.LinkedFrom.Count > 0 || card.Effects.Count > 0)
                 {
                     sb.Append(" | 효과 ").Append(card.Effects.Count).Append("개, 이 카드를 불러오는 카드 ").Append(card.LinkedFrom.Count).Append("개 연결");
+                }
+
+                // Value estimate for own actions (finite geometric chain sum). Display only: the policy is still random.
+                if (_values != null && o.Controller != 1)
+                {
+                    ChainResult v = null;
+                    if (effect != null && (o.Action == "Activate" || o.Action == "SpSummon")) v = _values.ValueOfEffect(o.CardId, effect, _zones);
+                    else if (o.Action == "Summon") v = _values.ValueOfNormalSummon(o.CardId, _zones);
+                    if (v != null)
+                    {
+                        o.Estimate = v.Value;
+                        sb.Append(" | 가치 ").Append(v.Describe());
+                    }
                 }
                 o.Info = sb.ToString();
             }

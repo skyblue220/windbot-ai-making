@@ -55,6 +55,7 @@
     <Compile Include="Agent\Core\*.cs" />
     <Compile Include="Agent\Knowledge\*.cs" />
     <Compile Include="Agent\CardDbFactory.cs" />
+    <Compile Include="Agent\DuelZoneView.cs" />
     <Compile Include="Game\GameClient.cs" />
     <Compile Include="Game\GamePacketFactory.cs" />
     <Compile Include="Game\Room.cs" />

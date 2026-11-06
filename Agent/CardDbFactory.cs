@@ -45,12 +45,113 @@ namespace WindBot.Agent
             return db;
         }
 
+        /// <summary>agent_values.json next to the bot (AssetPath). Created with the default base table if missing, so it can be edited.</summary>
+        public static ValueWeights LoadWeights()
+        {
+            string path = Path.Combine(Program.AssetPath ?? ".", "agent_values.json");
+            if (!File.Exists(path))
+            {
+                try { File.WriteAllText(path, new ValueWeights().ToJson(), new UTF8Encoding(false)); }
+                catch (Exception ex) { Logger.WriteErrorLine("Could not write " + path + ": " + ex.Message); }
+            }
+            return ValueWeights.Load(path);
+        }
+
         public static void Dump(string deckName, string outPath)
         {
             Deck deck = Deck.Load(deckName);
             GameCardDb db = Build(deck);
-            File.WriteAllText(outPath, db.Describe(null), new UTF8Encoding(false));
+            StringBuilder sb = new StringBuilder(db.Describe(null));
+
+            // Optional: chain values for a hypothetical opening hand, e.g. AgentDbHand=8633261,35844557
+            string hand = Config.GetString("AgentDbHand");
+            if (hand != null)
+            {
+                ValueModel model = new ValueModel(db, LoadWeights());
+                StaticZoneView zones = new StaticZoneView();
+                foreach (string s in hand.Split(','))
+                {
+                    int id;
+                    if (int.TryParse(s.Trim(), out id)) zones.Add("HAND", id);
+                }
+                sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 필드·묘지 비어 있음, 일반 소환 가능)");
+                sb.AppendLine();
+                sb.Append(DescribeValues(db, model, zones));
+            }
+            File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
             Logger.WriteLine("Card DB: " + db.Cards.Count + " cards, constants " + db.ConstantCount + ", script dirs " + db.ScriptDirCount + " → " + Path.GetFullPath(outPath));
+        }
+
+        /// <summary>Readable value table for the cards in hand: deck remaining, best chain if brought out, normal summon chain.</summary>
+        public static string DescribeValues(GameCardDb db, ValueModel model, IZoneView zones)
+        {
+            StringBuilder sb = new StringBuilder();
+            Dictionary<int, int> left = model.DeckRemaining(zones);
+            List<string> deck = new List<string>();
+            foreach (var kv in left)
+                if (kv.Value > 0) deck.Add(db.Get(kv.Key).Data.Name + " " + kv.Value);
+            sb.AppendLine("- 덱에 남은 카드(덱 매수 − 보이는 장수): " + String.Join(", ", deck.ToArray()));
+            sb.AppendLine("- γ = " + model.Weights.Gamma + ", 가중치 출처: " + model.Weights.Source);
+            foreach (CardEntry c in db.Cards.Values)
+            {
+                if (zones.Hand(c.Data.Id) <= 0) continue;
+                ChainResult best = model.ValueInHand(c.Data.Id, zones);
+                ChainResult ns = model.ValueOfNormalSummon(c.Data.Id, zones);
+                sb.AppendLine("- 패: " + c.Data.Name + " → 최선 " + best.Describe());
+                if (ns.Steps.Count > 0) sb.AppendLine("  - 일반 소환 시: " + ns.Describe());
+            }
+            sb.AppendLine();
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>Zone counts set by hand (offline tests).</summary>
+    public sealed class StaticZoneView : IZoneView
+    {
+        private readonly Dictionary<string, Dictionary<int, int>> _zones = new Dictionary<string, Dictionary<int, int>>();
+        public bool NormalSummonAvailable { get; set; }
+
+        public StaticZoneView() { NormalSummonAvailable = true; }
+
+        public void Add(string zone, int id)
+        {
+            Dictionary<int, int> z;
+            if (!_zones.TryGetValue(zone, out z)) { z = new Dictionary<int, int>(); _zones[zone] = z; }
+            int n;
+            z.TryGetValue(id, out n);
+            z[id] = n + 1;
+        }
+
+        private int Get(string zone, int id)
+        {
+            Dictionary<int, int> z;
+            int n;
+            return _zones.TryGetValue(zone, out z) && z.TryGetValue(id, out n) ? n : 0;
+        }
+
+        public int Hand(int id) { return Get("HAND", id); }
+        public int Field(int id) { return Get("MZONE", id) + Get("SZONE", id); }
+        public int Grave(int id) { return Get("GRAVE", id); }
+        public int Banished(int id) { return Get("REMOVED", id); }
+
+        public bool AnyOwn(string zones, Func<int, bool> match)
+        {
+            foreach (string zone in ZoneNames(zones))
+            {
+                Dictionary<int, int> z;
+                if (_zones.TryGetValue(zone, out z))
+                    foreach (var kv in z) if (kv.Value > 0 && match(kv.Key)) return true;
+            }
+            return false;
+        }
+
+        public static IEnumerable<string> ZoneNames(string zones)
+        {
+            foreach (string p in zones.Split('|'))
+            {
+                if (p == "ONFIELD") { yield return "MZONE"; yield return "SZONE"; }
+                else yield return p;
+            }
         }
     }
 }

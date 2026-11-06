@@ -65,6 +65,8 @@ namespace WindBot.Agent.Core
         public long Value;
         /// <summary>Readable knowledge attached from the per-game card DB (effect, usage this turn, linked cards).</summary>
         public string Info;
+        /// <summary>Value-model estimate of what this option brings this turn (finite chain sum); NaN when not estimated.</summary>
+        public double Estimate = double.NaN;
     }
 
     public sealed class DecisionRequest

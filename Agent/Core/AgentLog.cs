@@ -106,6 +106,7 @@ namespace WindBot.Agent.Core
                  .Num("location", o.Location).Num("sequence", o.Sequence).Num("position", o.Position)
                  .Num("description", o.Description).Num("param1", o.Param1).Num("param2", o.Param2).Num("value", o.Value);
                 if (o.Info != null) j.Str("info", o.Info);
+                if (!double.IsNaN(o.Estimate)) j.Raw("estimate", o.Estimate.ToString("0.###", CultureInfo.InvariantCulture));
                 sb.Append(j.Close());
             }
             return sb.Append(']').ToString();
