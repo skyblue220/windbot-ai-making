@@ -71,7 +71,7 @@ namespace WindBot.Agent.Knowledge
             { "ib.65681983:1", 40 }, { "is.65681983:1", 0.8 }, // Crossout Designator: negate by name
             { "imc.33787730:1", 1 },                          // Plasma Hole: up to the number of Ryzeal Xyz
             { "ib.6798031:4", 40 }, { "is.6798031:4", 0.8 }, { "ia.6798031:4", 5 }, // Ryzeal Cross ③: does not activate
-            { "ib.6511113:5", 40 }, { "is.6511113:5", 0.8 },   // Rafflesia ③: copies Gravedigger
+            { "ib.6511113:5", 40 }, { "is.6511113:5", 1.0 }, { "ia.6511113:5", 5 }, // Rafflesia ③: copies a Hole trap (negate); hard to remove
             { "is.9940036:3", 0.8 },                          // Aggregator ③
             { "ib.93039339:1", 35 }, { "is.93039339:1", 0.5 }, // TY-PHON ①: lock
             { "is.6983839:1", 0.5 },                          // Tornado Dragon: S/T only
