@@ -710,17 +710,26 @@ namespace WindBot.Agent.Knowledge
             _chain[chainLink] = link;
             KeyUsage u = Usage(player, card, e);
             u.Activated++;
-            if (e != null && e.Limit != null && e.Limit.Oath) u.Used++;
+            // Counted at activation for both kinds; an "activate" (OATH) limit is refunded if the activation is negated.
+            u.Used++;
             TurnEvents.Add("체인 " + chainLink + ": " + Who(player) + " " + Name(card) + " " + EffectName(e) + " 발동");
         }
 
+        /// <summary>
+        /// Activation negated. Verified in EDOPro (2026-11-07): Mist Valley Apex Avian negating Bonfire
+        /// ("can only activate 1 per turn", OATH) → Bonfire can be activated again. So an OATH limit is
+        /// refunded; a "can only use once per turn" limit (no OATH) stays spent.
+        /// </summary>
         public void OnChainNegated(int chainLink)
         {
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             l.ActivationNegated = true;
-            Usage(l.Player, l.Card, l.Effect).ActivationNegated++;
-            TurnEvents.Add("체인 " + chainLink + ": 발동 무효 (" + Name(l.Card) + ")");
+            KeyUsage u = Usage(l.Player, l.Card, l.Effect);
+            u.ActivationNegated++;
+            bool refunded = l.Effect != null && l.Effect.Limit != null && l.Effect.Limit.Oath && u.Used > 0;
+            if (refunded) u.Used--;
+            TurnEvents.Add("체인 " + chainLink + ": 발동 무효 (" + Name(l.Card) + (refunded ? ", '발동' 제약이라 다시 발동 가능" : "") + ")");
         }
 
         public void OnChainDisabled(int chainLink)
@@ -737,12 +746,7 @@ namespace WindBot.Agent.Knowledge
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             KeyUsage u = Usage(l.Player, l.Card, l.Effect);
-            if (!l.ActivationNegated)
-            {
-                // "use" counts once the activation stands, even if the effect itself was negated.
-                if (l.Effect == null || l.Effect.Limit == null || !l.Effect.Limit.Oath) u.Used++;
-                if (!l.EffectNegated) u.Resolved++;
-            }
+            if (!l.ActivationNegated && !l.EffectNegated) u.Resolved++;
             TurnEvents.Add("체인 " + chainLink + ": 처리 (" + Name(l.Card) + (l.ActivationNegated ? ", 발동 무효됨" : l.EffectNegated ? ", 효과 무효됨" : "") + ")");
         }
 
@@ -859,7 +863,7 @@ namespace WindBot.Agent.Knowledge
                         + (e.Range != null ? " / 위치: " + e.Range : ""));
                     if (!String.IsNullOrEmpty(e.Label)) sb.AppendLine("  - 설명: " + e.Label);
                     if (e.Categories.Count > 0) sb.AppendLine("  - 분류: " + String.Join(", ", e.Categories.ToArray()));
-                    if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " (OATH: 발동 시 소비)" : " (처리 시 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
+                    if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " ('발동' 제약: 발동 무효되면 다시 발동 가능)" : " ('사용' 제약: 발동 무효돼도 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
                     if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
                     foreach (CardLink l in e.Links)
