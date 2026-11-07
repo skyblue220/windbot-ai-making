@@ -90,7 +90,9 @@ namespace WindBot.Agent
             int seed = Environment.TickCount ^ Guid.NewGuid().GetHashCode();
             string duelId = Guid.NewGuid().ToString("N");
             _duelId = duelId;
-            _policy = new ValuePolicy(seed);
+            ValuePolicy vp = new ValuePolicy(seed);
+            try { vp.Explore = CardDbFactory.LoadWeights().Explore; } catch (Exception) { } // so the header shows the rate in use
+            _policy = vp;
             _log = new AgentLog(System.IO.Path.Combine("logs", "agent"), duelId);
             _log.Header(duelId, _buildId, _policy.Name, seed, _deck);
             _duelFinished = false;

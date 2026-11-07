@@ -31,7 +31,8 @@ namespace WindBot.Agent.Core
         public void Header(string duelId, string buildId, string policy, int seed, string deck)
         {
             Json j = Begin("header");
-            j.Str("duelId", duelId).Str("buildId", buildId).Str("policy", policy).Num("seed", seed).Str("deck", deck);
+            j.Str("duelId", duelId).Str("buildId", buildId).Str("policy", policy).Num("seed", seed).Str("deck", deck)
+             .Num("pid", System.Diagnostics.Process.GetCurrentProcess().Id).Num("thread", System.Threading.Thread.CurrentThread.ManagedThreadId);
             Write(j);
         }
 
