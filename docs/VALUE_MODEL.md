@@ -275,6 +275,11 @@ S = Σ_{k=0}^{n} γ^k × (기본값_k + 보정값_k)
 | Evilswarm Exciton Knight | 전체 파괴, 조건 좁음 + 배틀 한정 | 50×0.5×0.5 | 13 |
 | FA Ray Lancer ② | 효과 무효, 좁음 + 배틀 한정 | 40×0.5×0.5 | 10 |
 
+**엑스트라 덱 카드의 역할 (사용자 운용, 2026-11-07)**
+- **Number F0: Utopic Future Zexal**: 턴을 받은 뒤 공격할 수 있을 때 쓰는 어태커. 공격력 = (자신 필드 + 상대 묘지의 엑시즈 몬스터 랭크 합) × 500. Ryzeal 엑시즈 2~3장이면 크게 오른다. 같은 랭크 엑시즈 2장을 소재로 하는 엑시즈 위 엑시즈 소환이라 계획기가 아직 소환하지 못한다.
+- **Super Starslayer TY-PHON - Sky Crisis**: 발악 패턴. 진 경기에서 승률을 조금이라도 올리는 카드. 상대가 엑스트라 덱에서 2장 이상 특수 소환한 턴과 그 다음 턴에 자신 필드의 공격력이 가장 높은 몬스터 위에 겹쳐 소환할 수 있지만, 그 턴에 자신은 더 소환할 수 없다. ①로 상대 필드의 공격력 3000 이상 몬스터(무효 효과를 가진 상급 몬스터)의 효과를 막고 전투로 치운다. 선공 방해용이 아니라 후공·역전 상황의 카드다.
+- **Infernal Flame Banshee**: Duo Drive가 견제에 맞았을 때 Star를 가져와 Ryzeal 마법·함정을 확보하는 예비 경로(위 덱 변경 참고).
+
 **방해에서 제외**: Triple Tactics Talent(내 턴 반격), TY-PHON ②(기동 효과).
 
 **덱 변경 (2026-11-07)**: 효과를 오해해서 넣었던 Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 **Infernal Flame Banshee**(29423048, 랭크 4: ① 소재 1개 제거 → 덱의 화염족 1장 서치 또는 묘지로. 계획기는 ① 서치만 계산. 역할: 견제가 Duo Drive ③(2장 서치)에 맞았을 때 Star를 가져와 Ryzeal 마법·함정을 세트하는 예비 경로. Ryzeal에서 마법·함정을 가져오는 카드는 Duo Drive와 Star뿐이다. 견제가 없다고 보는 지금 계획에서는 거의 선택되지 않는다)와 **Number F0: Utopic Future Zexal**(41522092, delta 저장소 카드)을 넣었다. 제외 목록(`exclude.*`)도 지웠다. FNo.0은 같은 랭크 엑시즈 2장을 소재로 하는 엑시즈 위 엑시즈 소환이라, 계획기는 아직 이 카드를 소환하지 못한다(Ray Lancer와 같은 과제).
