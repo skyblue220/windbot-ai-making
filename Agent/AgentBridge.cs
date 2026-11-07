@@ -52,6 +52,8 @@ namespace WindBot.Agent
         private int _declareName;
         private DuelZoneView _zones;
         private int _pendingRuleSummon;
+        /// <summary>Monster whose attack we just declared, for the attack-target pick that follows.</summary>
+        private ClientCard _attacker;
 
         public AgentBridge(Duel duel, string deck)
         {
@@ -299,13 +301,30 @@ namespace WindBot.Agent
                         if (!double.IsNaN(o.Estimate)) continue;
                         if (o.Action == "ToBattlePhase") o.Estimate = stop.Value + 1; // attacking is how the game is won
                         else if (o.Action == "SetSpell" && IsSetInterrupt(o.CardId)) o.Estimate = stop.Value + 1; // the plan counts it as set
+                        else if (o.Action == "Repos" && ReposWanted(o)) o.Estimate = stop.Value + 2; // free, and the plan does not move it
                     }
                     break;
 
                 case RequestKind.Battle:
+                    // Attack options carry their battle outcome (set in OnSelectBattleCmd); stopping is 0.
                     foreach (DecisionOption o in r.Options)
-                        o.Estimate = o.Action == "Attack" ? 1 : o.Action == "Activate" ? double.NaN : 0;
+                        if (o.Action != "Attack") o.Estimate = o.Action == "Activate" ? double.NaN : 0;
+                    r.NoExplore = true;
                     break;
+
+                case RequestKind.Position:
+                    {
+                        CardEntry pc = r.SourceCardId != 0 ? _db.EnsureCard(r.SourceCardId, false) : null;
+                        bool attack = pc == null || BattleMath.PreferAttack(pc.Data.Atk, pc.Data.Def);
+                        foreach (DecisionOption o in r.Options)
+                        {
+                            CardPosition pos = (CardPosition)o.Value;
+                            if (pos == CardPosition.FaceUpAttack) o.Estimate = attack ? 1 : 0;
+                            else if (pos == CardPosition.FaceUpDefence) o.Estimate = attack ? 0 : 1;
+                            else o.Estimate = -1;
+                        }
+                        break;
+                    }
 
                 case RequestKind.EffectYn:
                     // Our own optional triggers: the plan assumes we use them.
@@ -345,6 +364,17 @@ namespace WindBot.Agent
                 case RequestKind.SelectUnselect:
                 case RequestKind.Tribute:
                     {
+                        if (r.Hint == WindBot.Game.AI.HintMsg.AttackTarget && _attacker != null)
+                        {
+                            // Attack target: the best battle outcome for the declared attacker.
+                            foreach (DecisionOption o in r.Options)
+                            {
+                                ClientCard t = FieldCard(o);
+                                if (t != null) o.Estimate = BattleMath.Score(_attacker.Attack, t, _duel.Fields[0].LifePoints, _duel.Fields[1].LifePoints);
+                            }
+                            r.NoExplore = true;
+                            break;
+                        }
                         r.PreferLow = GiveUpHints.Contains(r.Hint);
                         ZoneSnapshot z = _zones.Snapshot();
                         bool removal = RemovalHints.Contains(r.Hint);
@@ -726,10 +756,14 @@ namespace WindBot.Agent
                 r.Options.Add(o);
                 actions.Add(new BattlePhaseAction(BattlePhaseAction.BattleAction.Activate, card.ActionIndex));
             }
+            List<ClientCard> defenders = _duel.Fields[1].GetMonsters();
             foreach (ClientCard card in battle.AttackableCards)
             {
                 DecisionOption o = CardOption("Attack", card);
                 o.Value = card.CanDirectAttack ? 1 : 0;
+                ClientCard target;
+                o.Estimate = BattleMath.Best(card, defenders, _duel.Fields[0].LifePoints, _duel.Fields[1].LifePoints, out target);
+                o.Info = "전투 " + (target == null ? "직접 공격" : "→ " + target.Name + (target.IsDefense() ? " 수비 " + target.Defense : " 공격 " + target.Attack)) + " (공 " + card.Attack + ")";
                 r.Options.Add(o);
                 actions.Add(new BattlePhaseAction(BattlePhaseAction.BattleAction.Attack, card.ActionIndex));
             }
@@ -745,7 +779,30 @@ namespace WindBot.Agent
             }
 
             int chosen = AskOne(r);
+            _attacker = chosen >= 0 && r.Options[chosen].Action == "Attack" ? battle.AttackableCards.FirstOrDefault(c => c.Id == r.Options[chosen].CardId && c.Sequence == r.Options[chosen].Sequence) : null;
             return chosen < 0 ? new BattlePhaseAction(BattlePhaseAction.BattleAction.ToEndPhase) : actions[chosen];
+        }
+
+        /// <summary>The field card an option points at (monster zone only).</summary>
+        private ClientCard FieldCard(DecisionOption o)
+        {
+            if (o.Controller < 0 || o.Controller > 1 || o.Location != (int)CardLocation.MonsterZone) return null;
+            ClientCard[] zone = _duel.Fields[o.Controller].MonsterZone;
+            return o.Sequence >= 0 && o.Sequence < zone.Length ? zone[o.Sequence] : null;
+        }
+
+        /// <summary>
+        /// Changing a face-up monster's position: to attack when it has a winning attack now,
+        /// to defense when it has none and its DEF is the higher stat.
+        /// </summary>
+        private bool ReposWanted(DecisionOption o)
+        {
+            ClientCard c = FieldCard(o);
+            if (c == null || c.IsFacedown()) return false; // flip summons are left to the plan
+            ClientCard target;
+            double best = BattleMath.Best(c, _duel.Fields[1].GetMonsters(), _duel.Fields[0].LifePoints, _duel.Fields[1].LifePoints, out target);
+            if (c.IsDefense()) return best > 0;
+            return best <= 0 && c.Defense > c.Attack;
         }
 
         public int OnSelectChain(IList<ClientCard> cards, IList<long> descs, bool forced, int timing)
