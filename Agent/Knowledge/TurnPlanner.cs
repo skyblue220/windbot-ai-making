@@ -153,6 +153,10 @@ namespace WindBot.Agent.Knowledge
         private int _budget;
         private Dictionary<string, PlanResult> _memo;
         public int BudgetPerFirstMove = 40000;
+        public int MaxDepth = 16; // main moves per turn (a Duo Drive + 2 Detonator line already takes about 10)
+        public long MillisPerPlan = 4000; // wall-clock cap for one Plan call, shared evenly by the first moves left (results past it count as truncated)
+        private readonly System.Diagnostics.Stopwatch _clock = new System.Diagnostics.Stopwatch();
+        private long _moveDeadline;
 
         public TurnPlanner(GameCardDb db, ValueWeights w)
         {
@@ -283,12 +287,17 @@ namespace WindBot.Agent.Knowledge
             stop = StopResult(s);
             byFirstMove = new List<PlanResult>();
             PlanResult best = stop;
-            foreach (var mv in Moves(s, 0))
+            var firstMoves = Moves(s, 0).ToList();
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < firstMoves.Count; ++i)
             {
+                var mv = firstMoves[i];
                 // Every first move gets its own budget: otherwise the first one searched uses it all
                 // and the others are cut after a step or two (and look worse than they are).
                 // Fully searched sub-results are shared through the memo.
                 _budget = BudgetPerFirstMove;
+                _clock.Restart();
+                _moveDeadline = Math.Max(50, (MillisPerPlan - total.ElapsedMilliseconds) / (firstMoves.Count - i));
                 PlanResult rest = Search(mv.Value, 1);
                 PlanResult r = Combine(mv.Key, rest, 0);
                 byFirstMove.Add(r);
@@ -317,9 +326,9 @@ namespace WindBot.Agent.Knowledge
             if (_memo.TryGetValue(key, out cached)) return cached;
             PlanResult best = StopResult(s);
             bool truncated = false;
-            if (k < 10)
+            if (k < MaxDepth)
             {
-                if (--_budget > 0)
+                if (--_budget > 0 && _clock.ElapsedMilliseconds < _moveDeadline)
                 {
                     foreach (var mv in Moves(s, k))
                     {
