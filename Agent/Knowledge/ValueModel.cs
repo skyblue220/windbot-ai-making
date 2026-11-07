@@ -40,6 +40,9 @@ namespace WindBot.Agent.Knowledge
             // Interruptions on the opponent's turn (VALUE_MODEL.md 7.2 / 7.3)
             { "int.destroy", 30 },
             { "int.banish", 30 },
+            { "int.bounce_hand", 30 },   // return to hand (Extra Deck monsters go back to the Extra Deck): no GY effect left behind
+            { "int.bounce_deck", 35 },   // shuffle into the deck: like banish
+            { "int.control", 45 },       // take control: removes their card and adds a body to our field
             { "int.reactive_factor", 0.67 }, // destroy / banish usable only when the opponent activates: that effect still resolves (30 → 20)
             { "int.expected_targets", 2 },   // opponent face-up cards assumed for "up to N" removal when their field is not yet known
             { "int.negate_effect", 40 },
@@ -105,8 +108,6 @@ namespace WindBot.Agent.Knowledge
         public ValueWeights()
         {
             // Put in AI_Ryzeal by mistake (2026-11-07); excluded until removed from the ydk. Overridable in the file with value 0.
-            Excluded.Add(90091224); // Dark Rebellion Xyz Dragon of the Four Heavenly Dragons
-            Excluded.Add(77675029); // Exosister Karmael
         }
 
         public double BaseOf(string function)

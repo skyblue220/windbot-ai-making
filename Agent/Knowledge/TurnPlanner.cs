@@ -59,11 +59,14 @@ namespace WindBot.Agent.Knowledge
             var cat = e.Categories;
             bool neg = cat.Contains("NEGATE"), dis = cat.Contains("DISABLE"), des = cat.Contains("DESTROY");
             if (cat.Contains("DRAW") && (c.Data.Type & 0x1) != 0) return "드로우형";
+            if (cat.Contains("CONTROL")) return "컨트롤 탈취";
             if (neg && des) return "발동 무효 후 파괴";
             if (dis && des) return "효과 무효 후 파괴";
             if (dis) return "효과 무효";
             if (neg) return "발동 무효";
             if (cat.Contains("REMOVE")) return "단순 제외";
+            if (cat.Contains("TODECK") && !cat.Contains("SEARCH")) return "덱으로 바운스";
+            if (cat.Contains("TOHAND") && !cat.Contains("SEARCH")) return "패로 바운스";
             if (des) return "단순 파괴";
             return "미분류";
         }
@@ -83,6 +86,9 @@ namespace WindBot.Agent.Knowledge
                 case "발동 무효": return _w.BaseOf("int.negate_activation");
                 case "단순 제외": return _w.BaseOf("int.banish");
                 case "단순 파괴": return _w.BaseOf("int.destroy");
+                case "패로 바운스": return _w.BaseOf("int.bounce_hand");
+                case "덱으로 바운스": return _w.BaseOf("int.bounce_deck");
+                case "컨트롤 탈취": return _w.BaseOf("int.control");
                 default: return 0;
             }
         }
@@ -100,7 +106,7 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>
-        /// Timing "narrow": a destroy / banish that can only answer an activation (CHAINING), so the activated effect still resolves.
+        /// Timing "narrow": a removal (destroy, banish, bounce, control) that can only answer an activation (CHAINING), so the activated effect still resolves.
         /// Negations are not narrowed: answering the activation is how they work.
         /// </summary>
         public bool Reactive(CardEntry c, EffectEntry e)
@@ -108,7 +114,8 @@ namespace WindBot.Agent.Knowledge
             double o;
             if (_w.TryCardInt("ib", c.Data.Id, e.Index, out o)) return false;
             string t = TypeName(c, e);
-            return (t == "단순 파괴" || t == "단순 제외") && e.Events.Any(ev => ev.Contains("CHAINING"));
+            bool removal = t == "단순 파괴" || t == "단순 제외" || t == "패로 바운스" || t == "덱으로 바운스" || t == "컨트롤 탈취";
+            return removal && e.Events.Any(ev => ev.Contains("CHAINING"));
         }
 
         public bool MultipliesByCondition(CardEntry c, EffectEntry e)
