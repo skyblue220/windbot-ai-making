@@ -47,6 +47,14 @@ namespace WindBot.Agent
             }
             foreach (ClientCard c in Self.Graveyard) if (c != null && c.Id != 0) z.Grave.Add(c.Id);
             foreach (ClientCard c in Self.Banished) if (c != null && c.Id != 0) z.Banished.Add(c.Id);
+            ClientField opp = _duel.Fields[1];
+            if (opp != null)
+            {
+                int up = 0;
+                foreach (ClientCard c in opp.MonsterZone) if (c != null && c.IsFaceup()) up++;
+                foreach (ClientCard c in opp.SpellZone) if (c != null && c.IsFaceup()) up++;
+                z.OpponentFaceUp = up;
+            }
             return z;
         }
 

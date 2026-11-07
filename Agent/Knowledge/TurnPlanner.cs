@@ -18,6 +18,8 @@ namespace WindBot.Agent.Knowledge
         public readonly List<int> Grave = new List<int>();
         public readonly List<int> Banished = new List<int>();
         public bool NormalSummonAvailable = true;
+        /// <summary>Opponent's face-up cards on the field, or -1 if not known (offline tests).</summary>
+        public int OpponentFaceUp = -1;
     }
 
     // ------------------------------------------------------------------ interruptions
@@ -90,10 +92,23 @@ namespace WindBot.Agent.Knowledge
         {
             double v = TypeValue(c, e), x;
             if (_w.TryCardInt("is", c.Data.Id, e.Index, out x)) v *= x;
+            if (Reactive(c, e)) v *= _w.BaseOf("int.reactive_factor");
             if (_w.TryCardInt("ibt", c.Data.Id, e.Index, out x) && x != 0) v *= _w.BaseOf("int.battle_factor");
             if (_w.TryCardInt("ia", c.Data.Id, e.Index, out x)) v += x;
             if (inHand) v += _w.BaseOf("int.handtrap_bonus");
             return v;
+        }
+
+        /// <summary>
+        /// Timing "narrow": a destroy / banish that can only answer an activation (CHAINING), so the activated effect still resolves.
+        /// Negations are not narrowed: answering the activation is how they work.
+        /// </summary>
+        public bool Reactive(CardEntry c, EffectEntry e)
+        {
+            double o;
+            if (_w.TryCardInt("ib", c.Data.Id, e.Index, out o)) return false;
+            string t = TypeName(c, e);
+            return (t == "단순 파괴" || t == "단순 제외") && e.Events.Any(ev => ev.Contains("CHAINING"));
         }
 
         public bool MultipliesByCondition(CardEntry c, EffectEntry e)
@@ -254,8 +269,12 @@ namespace WindBot.Agent.Knowledge
             public int Left(int id) { return Count(Deck, id); }
         }
 
+        /// <summary>Most cards an "up to N" removal can hit: the opponent's face-up cards, at least int.expected_targets.</summary>
+        private int _targetCap = 2;
+
         private St FromSnapshot(ZoneSnapshot z, GameCardDb db)
         {
+            _targetCap = Math.Max(z.OpponentFaceUp, (int)_w.BaseOf("int.expected_targets"));
             St s = new St { NS = z.NormalSummonAvailable };
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
             foreach (var m in z.Monsters) s.Mons.Add(new Mon { Id = m.Key, Mats = m.Value });
@@ -885,7 +904,7 @@ namespace WindBot.Agent.Knowledge
             CardLink l = e.Links.FirstOrDefault(x => x.Role == "condition" && !x.Opponent && x.Targets.Count > 0);
             if (l == null) return 1;
             HashSet<int> ok = new HashSet<int>(l.Targets);
-            return s.Mons.Count(m => ok.Contains(m.Id));
+            return Math.Min(s.Mons.Count(m => ok.Contains(m.Id)), _targetCap); // e.g. Plasma Hole: no more than there is to destroy
         }
 
         // ---------------------------------------------------------- helpers

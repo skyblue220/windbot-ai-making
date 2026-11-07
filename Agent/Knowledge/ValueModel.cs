@@ -38,8 +38,10 @@ namespace WindBot.Agent.Knowledge
             { "cost_detach", -2 }, // materials are dummies; their worth is what they fuel (VALUE_MODEL.md 2장)
 
             // Interruptions on the opponent's turn (VALUE_MODEL.md 7.2 / 7.3)
-            { "int.destroy", 20 },     // the effect still resolves; only the card is destroyed
-            { "int.banish", 20 },
+            { "int.destroy", 30 },
+            { "int.banish", 30 },
+            { "int.reactive_factor", 0.67 }, // destroy / banish usable only when the opponent activates: that effect still resolves (30 → 20)
+            { "int.expected_targets", 2 },   // opponent face-up cards assumed for "up to N" removal when their field is not yet known
             { "int.negate_effect", 40 },
             { "int.negate_activation", 38 },
             { "int.negate_effect_destroy", 48 },
