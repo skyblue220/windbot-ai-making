@@ -277,7 +277,7 @@ S = Σ_{k=0}^{n} γ^k × (기본값_k + 보정값_k)
 
 **방해에서 제외**: Triple Tactics Talent(내 턴 반격), TY-PHON ②(기동 효과).
 
-**덱 변경 (2026-11-07)**: 효과를 오해해서 넣었던 Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 **Infernal Flame Banshee**(29423048, 랭크 4: ① 소재 1개 제거 → 덱의 화염족 1장 서치 또는 묘지로)와 **Number F0: Utopic Future Zexal**(41522092, delta 저장소 카드)을 넣었다. 제외 목록(`exclude.*`)도 지웠다. FNo.0은 같은 랭크 엑시즈 2장을 소재로 하는 엑시즈 위 엑시즈 소환이라, 계획기는 아직 이 카드를 소환하지 못한다(Ray Lancer와 같은 과제).
+**덱 변경 (2026-11-07)**: 효과를 오해해서 넣었던 Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 **Infernal Flame Banshee**(29423048, 랭크 4: ① 소재 1개 제거 → 덱의 화염족 1장 서치 또는 묘지로. 계획기는 ① 서치만 계산. 역할: 견제가 Duo Drive ③(2장 서치)에 맞았을 때 Star를 가져와 Ryzeal 마법·함정을 세트하는 예비 경로. Ryzeal에서 마법·함정을 가져오는 카드는 Duo Drive와 Star뿐이다. 견제가 없다고 보는 지금 계획에서는 거의 선택되지 않는다)와 **Number F0: Utopic Future Zexal**(41522092, delta 저장소 카드)을 넣었다. 제외 목록(`exclude.*`)도 지웠다. FNo.0은 같은 랭크 엑시즈 2장을 소재로 하는 엑시즈 위 엑시즈 소환이라, 계획기는 아직 이 카드를 소환하지 못한다(Ray Lancer와 같은 과제).
 
 ### 7.5 선공 턴 평가 (구현됨, 커밋 `e048b09`)
 
