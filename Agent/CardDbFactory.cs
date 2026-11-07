@@ -122,6 +122,7 @@ namespace WindBot.Agent
                 sb.Append(DescribeValues(db, model, zones));
                 sb.AppendLine("## 턴 계획 (흐름 + 턴 종료 방해 − 효율)");
                 TurnPlanner planner = new TurnPlanner(db, model.Weights);
+                planner.NextTurnValue = id => model.ValueNextTurn(id, zones).Value;
                 sb.Append(DescribePlan(planner, zones));
                 sb.AppendLine();
                 sb.AppendLine("## 덱에 대상이 없어 0점인 효과 (서치·특수 소환·세트·덱에서 사용)");
@@ -207,6 +208,15 @@ namespace WindBot.Agent
                 ChainResult ns = model.ValueOfNormalSummon(c.Data.Id, zones);
                 sb.AppendLine("- 패: " + c.Data.Name + " → 최선 " + best.Describe());
                 if (ns.Steps.Count > 0) sb.AppendLine("  - 일반 소환 시: " + ns.Describe());
+                ChainResult next = model.ValueNextTurn(c.Data.Id, zones);
+                if (next.Steps.Count > 0)
+                {
+                    int n = zones.Hand(c.Data.Id);
+                    double follow = 0;
+                    for (int k = 1; k <= n; ++k) follow += ValueModel.FollowOf(model.Weights, next.Value, k);
+                    sb.AppendLine("  - 다음 턴 후속" + (n > 1 ? " (" + n + "장)" : "") + ": " + follow.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                                + " = " + model.Weights.BaseOf("follow.discount") + " × " + next.Describe());
+                }
             }
             sb.AppendLine();
             return sb.ToString();

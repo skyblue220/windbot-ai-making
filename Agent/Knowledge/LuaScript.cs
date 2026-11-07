@@ -386,8 +386,12 @@ namespace WindBot.Agent.Knowledge
             "ConfirmCards", "XyzSummon", "SynchroSummon", "LinkSummon"
         };
 
-        private static readonly Regex DetachCall = new Regex(@"(?:Check)?RemoveOverlayCard\(\s*\w+\s*,\s*\d+\s*,\s*\d+\s*,\s*(\d+)", RegexOptions.Compiled);
-        private static readonly Regex CostDetach = new Regex(@"Cost\.Detach\(\s*(\d+)", RegexOptions.Compiled);
+        // Duel.RemoveOverlayCard(tp, s, o, min, max, reason) / Duel.CheckRemoveOverlayCard(tp, s, o, min, reason)
+        private static readonly Regex DetachCall = new Regex(@"Duel\.(?:Check)?RemoveOverlayCard\(\s*\w+\s*,\s*\d+\s*,\s*\d+\s*,\s*(\d+)", RegexOptions.Compiled);
+        // c:RemoveOverlayCard(tp, min, max, reason) / c:CheckRemoveOverlayCard(tp, min, reason), e.g. Rafflesia's copy effect in script/official
+        private static readonly Regex CardDetachCall = new Regex(@":(?:Check)?RemoveOverlayCard\(\s*\w+\s*,\s*(\d+)", RegexOptions.Compiled);
+        // Cost.Detach(n) / Cost.DetachFromSelf(n), also inside Cost.AND(...) (delta scripts)
+        private static readonly Regex CostDetach = new Regex(@"Cost\.Detach(?:FromSelf)?\(\s*(\d+)", RegexOptions.Compiled);
 
         /// <summary>Xyz materials the effect removes (as cost or as part of resolution), 0 when none.</summary>
         public int DetachCount(params string[] functions)
@@ -404,8 +408,9 @@ namespace WindBot.Agent.Knowledge
                 }
                 string body = ExpandedBody(f);
                 if (body == null) continue;
-                foreach (Match m in DetachCall.Matches(body))
-                    n = Math.Max(n, int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
+                foreach (Regex rx in new[] { DetachCall, CardDetachCall, CostDetach })
+                    foreach (Match m in rx.Matches(body))
+                        n = Math.Max(n, int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
             }
             return n;
         }

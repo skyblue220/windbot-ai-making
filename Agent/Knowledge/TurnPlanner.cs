@@ -134,6 +134,8 @@ namespace WindBot.Agent.Knowledge
         public int EffectIndex;
         /// <summary>The card this move searches, summons or sets (0 if none): picks during the move follow it.</summary>
         public int TargetId;
+        /// <summary>Hand cards the plan sends as this move's cost: the engine's cost pick follows them.</summary>
+        public readonly List<int> CostIds = new List<int>();
         public string Text;
         public double Gain;
     }
@@ -143,6 +145,8 @@ namespace WindBot.Agent.Knowledge
         public double Value;
         public double FlowValue;
         public double EndValue;
+        /// <summary>Follow-up worth of the cards still in hand at the end of the turn (next turn's use).</summary>
+        public double FollowValue;
         public int HandSpent;
         /// <summary>The search budget ran out somewhere below this result, so it may be an underestimate (not memoised).</summary>
         public bool Truncated;
@@ -155,6 +159,7 @@ namespace WindBot.Agent.Knowledge
             sb.Append(Value.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" (흐름 ").Append(FlowValue.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" + 턴 종료 방해 ").Append(EndValue.ToString("0.#", CultureInfo.InvariantCulture))
+              .Append(" + 후속 ").Append(FollowValue.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" − 효율 ").Append(HandSpent).Append("장)");
             if (Moves.Count > 0) sb.Append(" 행동: ").Append(String.Join(" → ", Moves.Select(m => m.Text).ToArray()));
             if (EndBoard.Count > 0) sb.Append(" | 방해: ").Append(String.Join(", ", EndBoard.ToArray()));
@@ -190,6 +195,35 @@ namespace WindBot.Agent.Knowledge
         }
 
         public InterruptModel Interrupts { get { return _int; } }
+
+        /// <summary>
+        /// Undiscounted next-turn value of a card in hand (ValueModel.ValueNextTurn). Null: no follow-up term.
+        /// Looked up once per card per Plan call.
+        /// </summary>
+        public Func<int, double> NextTurnValue;
+        private readonly Dictionary<int, double> _next = new Dictionary<int, double>();
+
+        private double NextTurn(int id)
+        {
+            if (NextTurnValue == null) return 0;
+            double v;
+            if (!_next.TryGetValue(id, out v)) { v = NextTurnValue(id); _next[id] = v; }
+            return v;
+        }
+
+        /// <summary>Follow-up worth of the cards in hand: per card name, follow.discount × next-turn value, further copies × follow.duplicate.</summary>
+        private double FollowTerm(St s)
+        {
+            double total = 0;
+            foreach (var kv in s.Hand.Where(x => x.Value > 0))
+            {
+                if (_w.Excluded.Contains(kv.Key)) continue;
+                double v = NextTurn(kv.Key);
+                if (v <= 0) continue;
+                for (int k = 1; k <= kv.Value; ++k) total += ValueModel.FollowOf(_w, v, k);
+            }
+            return total;
+        }
 
         // ---------------------------------------------------------- state
 
@@ -313,6 +347,7 @@ namespace WindBot.Agent.Knowledge
         public PlanResult Plan(ZoneSnapshot z, out List<PlanResult> byFirstMove, out PlanResult stop)
         {
             _memo = new Dictionary<string, PlanResult>(StringComparer.Ordinal);
+            _next.Clear();
             St s = FromSnapshot(z, _db);
             stop = StopResult(s);
             byFirstMove = new List<PlanResult>();
@@ -383,10 +418,11 @@ namespace WindBot.Agent.Knowledge
             r.Moves.AddRange(rest.Moves);
             r.FlowValue = gain + rest.FlowValue;
             r.EndValue = rest.EndValue;
+            r.FollowValue = rest.FollowValue;
             r.HandSpent = rest.HandSpent;
             r.Truncated = rest.Truncated;
             r.EndBoard.AddRange(rest.EndBoard);
-            r.Value = r.FlowValue + r.EndValue - _w.EfficiencyPerHandCard * r.HandSpent;
+            r.Value = r.FlowValue + r.EndValue + r.FollowValue - _w.EfficiencyPerHandCard * r.HandSpent;
             return r;
         }
 
@@ -394,8 +430,9 @@ namespace WindBot.Agent.Knowledge
         {
             PlanResult r = new PlanResult();
             r.EndValue = EndOfTurn(s, r.EndBoard);
+            r.FollowValue = FollowTerm(s);
             r.HandSpent = s.HandSpent;
-            r.Value = r.EndValue - _w.EfficiencyPerHandCard * s.HandSpent;
+            r.Value = r.EndValue + r.FollowValue - _w.EfficiencyPerHandCard * s.HandSpent;
             return r;
         }
 
@@ -428,12 +465,15 @@ namespace WindBot.Agent.Knowledge
                         n.Used.Add(proc.UsageKey);
                         n.TakeFromHand(id);
                         double cost;
-                        if (!PayCosts(n, c, proc, out cost)) continue;
+                        List<int> paid;
+                        if (!PayCosts(n, c, proc, out cost, out paid)) continue;
                         Detach(n, null, proc.DetachCount);
                         Mon m = new Mon { Id = id };
                         n.Mons.Add(m);
                         double gain = _w.BaseOf("rule_special_summon") + cost + proc.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(id, proc.Index);
-                        AddArrival(result, n, m, "SPSUMMON_SUCCESS", new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환", Gain = gain });
+                        PlanMove rm = new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환" + CostText(paid), Gain = gain };
+                        rm.CostIds.AddRange(paid);
+                        AddArrival(result, n, m, "SPSUMMON_SUCCESS", rm);
                     }
                     // Hand ignition effects that Normal Summon a monster from the hand without using the turn's Normal Summon
                     foreach (EffectEntry e in c.Effects.Where(x => x.Kind.StartsWith("기동") && x.Range != null && x.Range.Contains("HAND") && x.Categories.Contains("SUMMON")))
@@ -559,11 +599,12 @@ namespace WindBot.Agent.Knowledge
             b.Used.Add(e.UsageKey);
             if (fromHand) b.TakeFromHand(c.Data.Id);
             double cost;
-            if (!PayCosts(b, c, e, out cost)) return outs;
+            List<int> paid;
+            if (!PayCosts(b, c, e, out cost, out paid)) return outs;
             Detach(b, src != null ? (int?)s.Mons.IndexOf(src) : null, e.DetachCount);
 
             double baseGain = cost + e.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(c.Data.Id, e.Index);
-            string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" ? "기동" : "발동") + "(" + e.Index + ")";
+            string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" ? "기동" : "발동") + "(" + e.Index + ")" + CostText(paid);
 
             // Side functions that do not bring a card.
             foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
@@ -595,7 +636,9 @@ namespace WindBot.Agent.Knowledge
             if (main == null)
             {
                 if (e.Categories.Contains("SEARCH")) baseGain += _w.BaseOf("search"); // unreadable pick (excavate etc.)
-                outs.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, Text = label, Gain = baseGain } }, b));
+                PlanMove only = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, Text = label, Gain = baseGain };
+                only.CostIds.AddRange(paid);
+                outs.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { only }, b));
                 return outs;
             }
             string fn = ValueModel.FunctionOf(main);
@@ -613,6 +656,7 @@ namespace WindBot.Agent.Knowledge
                 if (fromDeck) n.Add(n.Deck, t, -1); else n.Add(n.Grave, t, -1);
                 CardEntry tc = _db.Get(t);
                 PlanMove mv = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, TargetId = t, Gain = baseGain + fBase, Text = label + " → " + Name(tc) };
+                mv.CostIds.AddRange(paid);
                 if (arrival == "HAND")
                 {
                     n.Add(n.Hand, t, 1);
@@ -639,15 +683,23 @@ namespace WindBot.Agent.Knowledge
             {
                 // Unparsed target: count the value if the source zone has anything, but do not continue a chain.
                 bool any = main.Location.Contains("DECK") || b.Grave.Values.Sum() > 0;
-                if (any) outs.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, Text = label + " (대상 미해석)", Gain = baseGain + fBase } }, b));
+                if (any)
+                {
+                    PlanMove um = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, Text = label + " (대상 미해석)", Gain = baseGain + fBase };
+                    um.CostIds.AddRange(paid);
+                    outs.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { um }, b));
+                }
             }
             return outs;
         }
 
         /// <summary>Costs: discard/send from hand or field (cheapest card), or an Extra Deck monster to the GY. False when unpayable.</summary>
-        private bool PayCosts(St s, CardEntry c, EffectEntry e, out double cost)
+        private bool PayCosts(St s, CardEntry c, EffectEntry e, out double cost) { List<int> unused; return PayCosts(s, c, e, out cost, out unused); }
+
+        private bool PayCosts(St s, CardEntry c, EffectEntry e, out double cost, out List<int> paid)
         {
             cost = 0;
+            paid = new List<int>();
             foreach (CardLink l in e.Links.Where(x => x.Role == "cost"))
             {
                 if (l.Relation.Contains("엑스트라 덱에서 묘지로"))
@@ -678,6 +730,7 @@ namespace WindBot.Agent.Knowledge
                         if (v < best) { best = v; pick = kv.Key; }
                     }
                     if (pick == 0) return false;
+                    paid.Add(pick);
                     s.TakeFromHand(pick);
                     s.Add(s.Grave, pick, 1);
                     cost -= best;
@@ -764,6 +817,9 @@ namespace WindBot.Agent.Knowledge
                 }
                 if (_int.IsInterrupt(c, e)) v += _int.Value(c, e, (e.Range != null && e.Range.Contains("HAND")) || c.TrapActInHand);
             }
+            // A card in hand whose effects are spent this turn still starts next turn (the last copy held is the one given up).
+            int copies = s.Count(s.Hand, c.Data.Id);
+            if (copies > 0) v = Math.Max(v, ValueModel.FollowOf(_w, NextTurn(c.Data.Id), copies));
             return v;
         }
 
@@ -945,5 +1001,6 @@ namespace WindBot.Agent.Knowledge
         private bool IsXyz(int id) { CardEntry c = _db.Get(id); return c != null && (c.Data.Type & 0x800000) != 0; }
         private static bool IsExtraType(CardEntry c) { return c != null && (c.Data.Type & (0x40 | 0x2000 | 0x800000 | 0x4000000)) != 0; }
         private static string Name(CardEntry c) { return c == null ? "?" : c.Data.Name; }
+        private string CostText(List<int> paid) { return paid.Count == 0 ? "" : " [코스트: " + String.Join(", ", paid.Select(id => Name(_db.Get(id))).ToArray()) + "]"; }
     }
 }

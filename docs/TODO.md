@@ -137,6 +137,8 @@
   - Lua에서 읽는 전투 내성: `EFFECT_INDESTRUCTABLE_BATTLE`(파괴 안 됨), `EFFECT_DESTROY_REPLACE`(파괴 대체). 자신에게만(SINGLE)인지, 자기 쪽 어떤 몬스터인지(대상/값 함수의 카드 조건), 소재가 있어야 하는지, 1턴 횟수를 본다. 예: Detonator ③ = 자기 쪽 엑시즈의 파괴 대체(소재 필요, 1턴 1번), Rafflesia = Rafflesia 외 Traptrix 보호. 대체로 막히면 파괴 가치 대신 대체에 쓰인 소재 가치만 얻는다. 카드 DB 문서에 "전투:" 줄로 표시.
   - 공격 대상 선택에서 모든 대상이 손해면 공격을 취소한다(엔진이 합법 대상만 주므로 FNo.0의 공격 대상 강제 같은 것도 여기서 걸러진다).
   - 아직 안 봄: 데미지 스텝 공격력 변화(`EFFECT_UPDATE_ATTACK` 조건부), 관통, 데미지 무효·반사, 조건부 내성의 조건(소재 조건 외).
+- [x] **패 카드의 다음 턴 후속 가치** (2026-11-07): 이번 턴에 효과를 다 써서 0이던 패 카드(중복 카드 포함)에 다음 턴 가치(1턴 1번을 비운 연쇄 가치 × 0.3, 두 번째 장부터 × 0.3)를 준다. 턴 계획의 턴 종료 평가와 코스트 선택에 쓴다. 효율 감점은 0으로(같은 것을 두 번 셈). VALUE_MODEL.md 7.5.
+- [x] **AI 대 AI 2판 선공 버그 2건** (2026-11-07): ① Rafflesia 복사 효과의 소재 1개 코스트를 못 읽어서(`c:CheckRemoveOverlayCard(tp,1,…)`, delta는 `Cost.DetachFromSelf(1)`) 소재 0개 Rafflesia를 방해로 셌고, Duo Drive ③이 Rafflesia 소재를 공짜로 보고 뗐다. 카드 메서드형·`Cost.DetachFromSelf`도 읽게 했다. ② Ice 룰 소환 코스트에서 계획은 패의 Cross를 냈는데 실제 선택은 다음 엑시즈 소재인 필드의 Sword를 보내 Detonator를 못 만들었다. 계획이 낸 코스트 카드를 기록하고(`[코스트: …]`) 실제 코스트 선택이 따르게 했다.
 - [ ] **실제 듀얼로 위 수정 확인**: 끝난 필드가 Duo Drive + Detonator + Rafflesia인지, 소재 제거가 Duo Drive부터인지("소재 위치:" 표시), Ext 코스트로 Twins/Aggregator를 보내는지, 같은 Ext를 다시 가져오지 않는지.
 - [ ] **로그·상태 기록의 효과 번호를 카드 텍스트 ①②③에 맞추기.** 지금은 Lua 등록 순서라 텍스트와 다르다(Detonator: DB 효과 1 = 텍스트 ②).
 - [ ] 오프라인 덤프에서 Star Ryzeal 이름이 `#84433129`로 나온다(cards.cdb만 읽음). 실제 게임에서는 정상.

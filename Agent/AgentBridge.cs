@@ -121,6 +121,8 @@ namespace WindBot.Agent
                 }
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
                 _planner = new TurnPlanner(_db, _values.Weights);
+                ValueModel vm = _values;
+                _planner.NextTurnValue = id => vm.ValueNextTurn(id, _zones).Value;
                 ValuePolicy vp = _policy as ValuePolicy;
                 if (vp != null) vp.Explore = _values.Weights.Explore;
                 _zones = new DuelZoneView(_duel, _db);
@@ -440,6 +442,7 @@ namespace WindBot.Agent
                         }
                         if (anyOpponent) r.NoExplore = true;
                         if (!r.PreferLow) FollowPlan(r);
+                        else if (!anyOpponent) FollowPlanCost(r);
                         break;
                     }
             }
@@ -461,6 +464,30 @@ namespace WindBot.Agent
                 hit.Info = (hit.Info ?? "") + " | 계획대로: " + _planAhead[i].Text;
                 _planAhead.RemoveRange(0, i + 1);
                 return;
+            }
+        }
+
+        /// <summary>
+        /// Cost picks (send to GY, discard, ...): the hand card the plan paid for the current move goes first,
+        /// so a field card the plan still needs is not given up instead (e.g. Ice Ryzeal's cost taking the Sword
+        /// meant as the next Xyz material). Only the move being resolved and its triggers are looked at.
+        /// </summary>
+        private void FollowPlanCost(DecisionRequest r)
+        {
+            for (int i = 0; i < _planAhead.Count; ++i)
+            {
+                PlanMove m = _planAhead[i];
+                if (i > 0 && m.Kind != "trigger") return;
+                foreach (int id in m.CostIds)
+                {
+                    DecisionOption hit = r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == id && o.Location == (int)CardLocation.Hand)
+                                      ?? r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == id);
+                    if (hit == null) continue;
+                    hit.Estimate = (double.IsNaN(hit.Estimate) ? 0 : hit.Estimate) - PlanTargetBonus;
+                    hit.Info = (hit.Info ?? "") + " | 계획대로 코스트: " + m.Text;
+                    m.CostIds.Remove(id);
+                    return;
+                }
             }
         }
 

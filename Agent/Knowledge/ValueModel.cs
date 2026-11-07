@@ -58,6 +58,10 @@ namespace WindBot.Agent.Knowledge
             { "int.battle_factor", 0.5 },
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
+
+            // Follow-up: a card kept in hand is worth part of what it would start next turn (once-per-turn uses reset).
+            { "follow.discount", 0.3 },  // next turn is uncertain (opponent's turn, hand traps); a correction, so well below the end board
+            { "follow.duplicate", 0.3 }, // each further copy of the same card: its once-per-turn effects are shared
         };
 
         /// <summary>
@@ -94,7 +98,7 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>Penalty per hand card spent, for the end-of-turn interruption evaluation (VALUE_MODEL.md 7.5). Provisional; not used until that evaluation exists.</summary>
-        public double EfficiencyPerHandCard = 10;
+        public double EfficiencyPerHandCard = 0; // replaced by the follow-up term (cards kept in hand), which counted the same thing twice
 
         /// <summary>Probability that the value policy picks a random legal answer instead (exploration for learning).</summary>
         public double Explore = 0; // random steps lose real duels; turn on only for controlled experiments
@@ -264,15 +268,16 @@ namespace WindBot.Agent.Knowledge
             return left;
         }
 
-        private Ctx NewCtx(IZoneView z)
+        private Ctx NewCtx(IZoneView z, bool nextTurn = false)
         {
-            Ctx c = new Ctx { Zones = z, NormalSummon = z.NormalSummonAvailable };
+            Ctx c = new Ctx { Zones = z, NormalSummon = nextTurn || z.NormalSummonAvailable };
             foreach (var kv in DeckRemaining(z)) c.DeckLeft[kv.Key] = kv.Value;
-            // Effects whose once-per-turn count is already spent this turn.
+            // Effects whose once-per-turn count is already spent this turn (next turn: only once-per-duel ones stay spent).
             foreach (CardEntry card in _db.Cards.Values)
                 if (!card.Opponent) // our own usage only
                 foreach (EffectEntry e in card.Effects)
                 {
+                    if (nextTurn && (e.Limit == null || !e.Limit.PerDuel)) continue;
                     KeyUsage u = _db.PeekUsage(0, e);
                     if (u != null && e.Limit != null && u.Used >= e.Limit.Count) c.UsedKeys.Add(e.UsageKey);
                 }
@@ -295,6 +300,26 @@ namespace WindBot.Agent.Knowledge
             CardEntry card = _db.Get(cardId);
             if (card == null) return new ChainResult();
             return FromHand(card, NewCtx(z), 0);
+        }
+
+        /// <summary>
+        /// What a card in hand would start next turn: the same chain value with this turn's once-per-turn uses reset
+        /// and the Normal Summon available (deck, grave and field as they are now). Not discounted.
+        /// </summary>
+        public ChainResult ValueNextTurn(int cardId, IZoneView z)
+        {
+            CardEntry card = _db.Get(cardId);
+            if (card == null) return new ChainResult();
+            return FromHand(card, NewCtx(z, true), 0);
+        }
+
+        /// <summary>
+        /// Follow-up worth of the k-th copy (k = 1, 2, ...) of a card kept in hand:
+        /// follow.discount × next-turn value × follow.duplicate^(k−1).
+        /// </summary>
+        public static double FollowOf(ValueWeights w, double nextTurnValue, int k)
+        {
+            return w.BaseOf("follow.discount") * Math.Max(0, nextTurnValue) * Math.Pow(w.BaseOf("follow.duplicate"), Math.Max(0, k - 1));
         }
 
         /// <summary>Value of normal summoning a card from hand now.</summary>
