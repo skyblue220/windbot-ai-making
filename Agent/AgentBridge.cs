@@ -24,11 +24,33 @@ namespace WindBot.Agent
             return deck != null && deck.StartsWith(DeckPrefix, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>Separator in the deck setting before the opponent's deck: "Agent:AI_Ryzeal@&lt;opponent ydk&gt;".</summary>
+        public const char OpponentSeparator = '@';
+
         public static string DeckNameOf(string deck)
         {
-            string name = deck.Substring(DeckPrefix.Length).Trim();
+            string name = deck.Substring(DeckPrefix.Length);
+            int at = name.IndexOf(OpponentSeparator);
+            if (at >= 0) name = name.Substring(0, at);
+            name = name.Trim();
             return name.Length == 0 ? "AI_Ryzeal" : name;
         }
+
+        /// <summary>The opponent's deck named in the deck setting ("Agent:AI_Ryzeal@Snake-Eye"), or null.</summary>
+        public static string OpponentDeckOf(string deck)
+        {
+            if (deck == null) return null;
+            int at = deck.IndexOf(OpponentSeparator);
+            if (at < 0) return null;
+            string name = deck.Substring(at + 1).Trim();
+            return name.Length == 0 ? null : name;
+        }
+
+        /// <summary>
+        /// The opponent's deck list, which the engine never sends: from the deck setting or the AgentOpponentDeck argument.
+        /// Without it the bot only knows the opponent's cards it has seen.
+        /// </summary>
+        public string OpponentDeck;
 
         private readonly Duel _duel;
         private readonly string _deck;
@@ -89,6 +111,12 @@ namespace WindBot.Agent
             try
             {
                 _db = CardDbFactory.Build(_deckList);
+                if (!String.IsNullOrEmpty(OpponentDeck))
+                {
+                    Deck theirs = CardDbFactory.LoadDeck(OpponentDeck);
+                    if (theirs != null) _db.AddOpponentDeck(theirs.Cards, theirs.ExtraCards);
+                    else _log.Error("opponent-deck", "Deck not found: " + OpponentDeck);
+                }
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
                 _planner = new TurnPlanner(_db, _values.Weights);
                 ValuePolicy vp = _policy as ValuePolicy;

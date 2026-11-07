@@ -73,7 +73,9 @@ namespace WindBot.Game
             {
                 // New agent: no GameAI, no Executor. Deck arg is "Agent:<ydk name>".
                 deckName = WindBot.Agent.AgentBridge.DeckNameOf(Game.Deck);
-                _decider = new WindBot.Agent.AgentBridge(_duel, Game.DeckFile ?? deckName);
+                WindBot.Agent.AgentBridge bridge = new WindBot.Agent.AgentBridge(_duel, Game.DeckFile ?? deckName);
+                bridge.OpponentDeck = WindBot.Agent.AgentBridge.OpponentDeckOf(Game.Deck) ?? Config.GetString("AgentOpponentDeck");
+                _decider = bridge;
             }
             else
             {

@@ -268,6 +268,7 @@ namespace WindBot.Agent.Knowledge
             foreach (var kv in DeckRemaining(z)) c.DeckLeft[kv.Key] = kv.Value;
             // Effects whose once-per-turn count is already spent this turn.
             foreach (CardEntry card in _db.Cards.Values)
+                if (!card.Opponent) // our own usage only
                 foreach (EffectEntry e in card.Effects)
                 {
                     KeyUsage u = _db.PeekUsage(0, e);

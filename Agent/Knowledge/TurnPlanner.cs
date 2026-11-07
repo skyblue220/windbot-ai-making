@@ -298,6 +298,7 @@ namespace WindBot.Agent.Knowledge
             foreach (int id in db.MainDeck.Distinct()) s.Deck[id] = Math.Max(0, db.MainDeck.Count(x => x == id) - seen.Count(x => x == id));
             foreach (int id in db.ExtraDeck.Distinct()) s.Extra[id] = Math.Max(0, db.ExtraDeck.Count(x => x == id) - seen.Count(x => x == id));
             foreach (CardEntry c in db.Cards.Values)
+                if (!c.Opponent) // our own usage only
                 foreach (EffectEntry e in c.Effects)
                 {
                     KeyUsage u = db.PeekUsage(0, e);

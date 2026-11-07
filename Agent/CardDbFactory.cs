@@ -57,6 +57,34 @@ namespace WindBot.Agent
             return db;
         }
 
+        /// <summary>
+        /// A deck by name: the bot's Decks folder, then the game's deck folder (EDOPro's own decks), a full path, or ydke://.
+        /// Null when not found or empty.
+        /// </summary>
+        public static Deck LoadDeck(string name)
+        {
+            if (String.IsNullOrEmpty(name)) return null;
+            string path = null;
+            if (name.StartsWith("ydke://")) path = name;
+            else if (Path.IsPathRooted(name)) path = File.Exists(name) ? name : null;
+            else
+            {
+                string file = name.EndsWith(".ydk", StringComparison.OrdinalIgnoreCase) ? name : name + ".ydk";
+                foreach (string dir in new[] { Path.Combine(Program.AssetPath ?? ".", "Decks"), "deck", Path.Combine(Program.AssetPath ?? ".", "..", "deck") })
+                {
+                    string candidate = Path.GetFullPath(Path.Combine(dir, file));
+                    if (File.Exists(candidate)) { path = candidate; break; }
+                }
+            }
+            if (path == null) return null;
+            try
+            {
+                Deck d = Deck.Load(path);
+                return d != null && d.Cards.Count + d.ExtraCards.Count > 0 ? d : null;
+            }
+            catch (Exception) { return null; }
+        }
+
         /// <summary>agent_values.json next to the bot (AssetPath). Created with the default base table if missing, so it can be edited.</summary>
         public static ValueWeights LoadWeights()
         {
@@ -73,6 +101,9 @@ namespace WindBot.Agent
         {
             Deck deck = Deck.Load(deckName);
             GameCardDb db = Build(deck);
+            // Optional: the opponent's deck, e.g. AgentOpponentDeck=AI_Ryzeal (as in the deck setting "Agent:AI_Ryzeal@AI_Ryzeal").
+            Deck theirs = LoadDeck(Config.GetString("AgentOpponentDeck"));
+            if (theirs != null) db.AddOpponentDeck(theirs.Cards, theirs.ExtraCards);
             StringBuilder sb = new StringBuilder(db.Describe(null));
 
             // Optional: chain values for a hypothetical opening hand, e.g. AgentDbHand=8633261,35844557
@@ -97,7 +128,7 @@ namespace WindBot.Agent
                 Dictionary<int, int> left = model.DeckRemaining(zones);
                 Func<int, int> deckLeft = id => { int n; return left.TryGetValue(id, out n) ? n : 0; };
                 int blocked = 0;
-                foreach (CardEntry c in db.Cards.Values)
+                foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent))
                     foreach (EffectEntry e in c.Effects)
                     {
                         bool all = ValueModel.DeckBlocked(e, deckLeft, model.Weights.Excluded);

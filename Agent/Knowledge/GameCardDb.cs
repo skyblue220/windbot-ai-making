@@ -91,7 +91,10 @@ namespace WindBot.Agent.Knowledge
         public int CopiesInDeck;
         public bool InMainDeck;
         public bool InExtraDeck;
+        /// <summary>Only the opponent plays this card (a card both decks hold is ours, with OpponentCopies set).</summary>
         public bool Opponent;
+        /// <summary>Copies in the opponent's declared deck list (0 when no list or not in it).</summary>
+        public int OpponentCopies;
         public bool ScriptFound;
         public string ScriptPath;
         /// <summary>A trap that can be activated from the hand (Infinite Impermanence), and whether that needs our field empty.</summary>
@@ -121,6 +124,10 @@ namespace WindBot.Agent.Knowledge
         public readonly Dictionary<int, CardEntry> Cards = new Dictionary<int, CardEntry>();
         public readonly List<int> MainDeck = new List<int>();
         public readonly List<int> ExtraDeck = new List<int>();
+        /// <summary>The opponent's deck list when the bot was told it (no list: empty, and only revealed cards are known).</summary>
+        public readonly List<int> OpponentMainDeck = new List<int>();
+        public readonly List<int> OpponentExtraDeck = new List<int>();
+        public bool HasOpponentDeck { get { return OpponentMainDeck.Count + OpponentExtraDeck.Count > 0; } }
 
         // runtime: per player (0 self, 1 opponent), per count-limit key
         private readonly Dictionary<string, KeyUsage>[] _usage = { new Dictionary<string, KeyUsage>(), new Dictionary<string, KeyUsage>() };
@@ -159,6 +166,20 @@ namespace WindBot.Agent.Knowledge
             foreach (int id in extra) AddCard(id, false).InExtraDeck = true;
             foreach (CardEntry c in Cards.Values)
                 c.CopiesInDeck = main.Count(x => x == c.Data.Id) + extra.Count(x => x == c.Data.Id);
+            ComputeLinks();
+        }
+
+        /// <summary>
+        /// Adds the opponent's deck list (the engine never sends it; the bot is told it in its deck setting).
+        /// Their cards get effects and links like ours, with links searched in their deck.
+        /// </summary>
+        public void AddOpponentDeck(IList<int> main, IList<int> extra)
+        {
+            OpponentMainDeck.Clear(); OpponentMainDeck.AddRange(main);
+            OpponentExtraDeck.Clear(); OpponentExtraDeck.AddRange(extra);
+            foreach (int id in main.Concat(extra)) AddCard(id, true);
+            foreach (CardEntry c in Cards.Values)
+                c.OpponentCopies = main.Count(x => x == c.Data.Id) + extra.Count(x => x == c.Data.Id);
             ComputeLinks();
         }
 
@@ -512,7 +533,9 @@ namespace WindBot.Agent.Knowledge
                 foreach (CardLink l in e.Links)
                 {
                     l.Targets.Clear();
-                    if (l.Opponent) continue;
+                    // Whose cards the link looks at: the owner's own deck, or the other side's for "opponent" links.
+                    bool theirs = l.Opponent ? !c.Opponent : c.Opponent;
+                    if (theirs && !HasOpponentDeck) continue;
                     if (l.Filter.Partial)
                     {
                         // Not evaluated: or / not(...) / local logic. Keep the raw text instead of a wrong list.
@@ -523,7 +546,7 @@ namespace WindBot.Agent.Knowledge
                                 && !l.Filter.Groups.Any(g => g.Items.All(p => StaticMethods.Contains(p.Method)));
                     if (l.AnyCard) continue;
                     bool monstersOnly = l.Relation.Contains("특수 소환") || l.Location == "MZONE";
-                    foreach (int id in Candidates(l.Location))
+                    foreach (int id in Candidates(l.Location, theirs))
                         if ((!monstersOnly || IsMonster(Cards[id].Data)) && Matches(Cards[id], l.Filter, c.Data.Id))
                         {
                             l.Targets.Add(id);
@@ -534,7 +557,7 @@ namespace WindBot.Agent.Knowledge
             if (c.Material != null)
             {
                 c.Material.Targets.Clear();
-                foreach (int id in MainDeck.Distinct())
+                foreach (int id in (c.Opponent ? OpponentMainDeck : MainDeck).Distinct())
                 {
                     CardData d = Cards[id].Data;
                     if (!IsMonster(d) || IsType(d, "TYPE_XYZ") || IsType(d, "TYPE_LINK")) continue;
@@ -556,14 +579,16 @@ namespace WindBot.Agent.Knowledge
             return int.TryParse(r.Substring(start, end - start), out lv) ? lv : -1;
         }
 
-        private IEnumerable<int> Candidates(string loc)
+        private IEnumerable<int> Candidates(string loc, bool opponentSide)
         {
+            List<int> main = opponentSide ? OpponentMainDeck : MainDeck;
+            List<int> extra = opponentSide ? OpponentExtraDeck : ExtraDeck;
             HashSet<int> ids = new HashSet<int>();
             foreach (string p in loc.Split('|'))
             {
-                if (p == "EXTRA") foreach (int id in ExtraDeck) ids.Add(id);
-                else if (p == "DECK" || p == "HAND") foreach (int id in MainDeck) ids.Add(id);
-                else { foreach (int id in MainDeck) ids.Add(id); foreach (int id in ExtraDeck) ids.Add(id); }
+                if (p == "EXTRA") foreach (int id in extra) ids.Add(id);
+                else if (p == "DECK" || p == "HAND") foreach (int id in main) ids.Add(id);
+                else { foreach (int id in main) ids.Add(id); foreach (int id in extra) ids.Add(id); }
             }
             return ids;
         }
@@ -880,7 +905,7 @@ namespace WindBot.Agent.Knowledge
             foreach (CardEntry c in Cards.Values.OrderBy(x => x.Opponent).ThenBy(x => x.InExtraDeck).ThenBy(x => x.Data.Name, StringComparer.Ordinal))
             {
                 CardData d = c.Data;
-                sb.AppendLine("## " + d.Name + " (" + d.Id + ")" + (c.Opponent ? " — 상대 카드" : c.CopiesInDeck > 0 ? " ×" + c.CopiesInDeck + (c.InExtraDeck ? " [엑스트라]" : "") : ""));
+                sb.AppendLine("## " + d.Name + " (" + d.Id + ")" + (c.Opponent ? " — 상대 카드" + (c.OpponentCopies > 0 ? " ×" + c.OpponentCopies : "") : c.CopiesInDeck > 0 ? " ×" + c.CopiesInDeck + (c.InExtraDeck ? " [엑스트라]" : "") + (c.OpponentCopies > 0 ? " (상대 덱 ×" + c.OpponentCopies + ")" : "") : ""));
                 sb.AppendLine(Stats(d));
                 if (!c.ScriptFound) sb.AppendLine("- 스크립트 없음" + (c.Notes.Count > 0 ? " (" + String.Join(", ", c.Notes.ToArray()) + ")" : ""));
                 if (c.Material != null)
@@ -898,10 +923,10 @@ namespace WindBot.Agent.Knowledge
                     if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
                     foreach (CardLink l in e.Links)
                         sb.AppendLine("  - " + RoleKo(l.Role) + ": " + l.Relation + FilterText(l.Filter)
-                            + (l.Opponent ? " → 상대 카드"
+                            + (l.Opponent && l.Targets.Count == 0 ? " → 상대 카드"
                                : l.Filter.Partial ? " → (미해석, 연결 계산 안 함)"
                                : l.AnyCard ? " → 조건에 맞는 아무 카드"
-                               : " → 이 덱에서: " + NamesOf(l.Targets)));
+                               : (l.Opponent != c.Opponent ? " → 상대 덱에서: " : " → 이 덱에서: ") + NamesOf(l.Targets)));
                     foreach (string u in e.Unresolved) sb.AppendLine("  - 미해석: " + u);
                 }
                 if (c.LinkedFrom.Count > 0)
