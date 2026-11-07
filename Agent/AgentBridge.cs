@@ -45,6 +45,11 @@ namespace WindBot.Agent
         private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
         private readonly List<PlanMove> _planAhead = new List<PlanMove>();
         private const double PlanTargetBonus = 1000;
+
+        /// <summary>Crossout Designator: declare a name, banish that card from our Main Deck, negate the opponent's cards of that name.</summary>
+        private const int CrossoutDesignator = 65681983;
+        /// <summary>Name to declare for the Crossout Designator we are chaining (0 if none).</summary>
+        private int _declareName;
         private DuelZoneView _zones;
         private int _pendingRuleSummon;
 
@@ -315,6 +320,17 @@ namespace WindBot.Agent
                         foreach (DecisionOption o in r.Options)
                         {
                             if (o.Action == "Pass") { o.Estimate = opponentActed ? 0 : 1; continue; }
+                            if (o.CardId == CrossoutDesignator)
+                            {
+                                // Only in answer to an opponent's card that our Main Deck still holds a copy of: that is the name we declare.
+                                int name = opponentActed ? CrossoutName() : 0;
+                                CardEntry cc = _db.Get(o.CardId);
+                                EffectEntry ce = cc != null ? _db.FindEffect(cc, o.Description) : null;
+                                o.Estimate = name != 0 && cc != null && ce != null ? _planner.Interrupts.Value(cc, ce, o.Location == (int)CardLocation.Hand) : -1;
+                                _declareName = name;
+                                if (name != 0) o.Info = (o.Info ?? "") + " | 선언 대상: " + (_db.Get(name) != null ? _db.Get(name).Data.Name : name.ToString());
+                                continue;
+                            }
                             CardEntry c = _db.Get(o.CardId);
                             EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
                             if (c == null || e == null) continue;
@@ -387,6 +403,21 @@ namespace WindBot.Agent
             }
         }
 
+        /// <summary>The opponent's latest chain link, if our Main Deck still has a copy of that card (Crossout Designator's name to declare), else 0.</summary>
+        private int CrossoutName()
+        {
+            if (_deckList == null || _values == null) return 0;
+            ChainInfo link = _duel.CurrentChainInfo.LastOrDefault(x => x.ActivatePlayer == 1);
+            if (link == null) return 0;
+            Dictionary<int, int> left = _values.DeckRemaining(_zones);
+            foreach (int id in new[] { link.RelatedCard != null ? link.RelatedCard.Id : 0, link.ActivateId, link.ActivateAlias })
+            {
+                int n;
+                if (id != 0 && _deckList.Cards.Contains(id) && left.TryGetValue(id, out n) && n > 0) return id;
+            }
+            return 0;
+        }
+
         /// <summary>A trap / quick-play in hand that the end-of-turn evaluation counts as set (not one better kept in hand).</summary>
         private bool IsSetInterrupt(int cardId)
         {
@@ -418,6 +449,12 @@ namespace WindBot.Agent
             }
             ValuePolicy vp = _policy as ValuePolicy;
             _log.Decision(request, state, decision, vp != null && vp.LastExplored);
+            if (request.Kind == RequestKind.Chain)
+            {
+                // The declared name is only for a Crossout Designator we actually chain.
+                bool crossout = !decision.Canceled && decision.Indices.Count > 0 && request.Options[decision.Indices[0]].CardId == CrossoutDesignator;
+                if (!crossout) _declareName = 0;
+            }
             if (request.Kind == RequestKind.Idle)
             {
                 // Remember the rest of the plan taken, for the picks that its moves ask for.
@@ -888,8 +925,10 @@ namespace WindBot.Agent
                 DecisionOption o = Option("Announce");
                 o.CardId = id;
                 o.Value = id;
+                if (_declareName != 0) o.Estimate = id == _declareName ? 1 : 0; // the name picked when chaining Crossout Designator
                 r.Options.Add(o);
             }
+            _declareName = 0;
             int chosen = AskOne(r);
             return avail[chosen < 0 ? 0 : chosen];
         }
