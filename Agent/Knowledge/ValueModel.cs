@@ -33,7 +33,8 @@ namespace WindBot.Agent.Knowledge
             { "extra_to_grave", 10 },
             { "destroy_replace", 15 },
             { "destroy_or_negate", 35 },
-            { "cost_extra_to_grave", -5 },
+            { "cost_extra_to_grave", 0 }, // plus grave_fodder × the sent card's "sent to the GY" effect (e.g. Eclipse Twins ③, Aggregator ③)
+            { "grave_fodder", 0.5 },     // that effect still needs the card attached (Detonator ②) and detached on the opponent's turn
             { "cost_detach", -2 }, // materials are dummies; their worth is what they fuel (VALUE_MODEL.md 2장)
 
             // Interruptions on the opponent's turn (VALUE_MODEL.md 7.2 / 7.3)
@@ -71,7 +72,7 @@ namespace WindBot.Agent.Knowledge
             { "ib.65681983:1", 40 }, { "is.65681983:1", 0.8 }, // Crossout Designator: negate by name
             { "imc.33787730:1", 1 },                          // Plasma Hole: up to the number of Ryzeal Xyz
             { "ib.6798031:4", 40 }, { "is.6798031:4", 0.8 }, { "ia.6798031:4", 5 }, // Ryzeal Cross ③: does not activate
-            { "ib.6511113:5", 40 }, { "is.6511113:5", 1.0 }, { "ia.6511113:5", 5 }, // Rafflesia ③: copies a Hole trap (negate); hard to remove
+            { "ib.6511113:5", 55 }, { "is.6511113:5", 1.0 }, { "ia.6511113:5", 10 }, // Rafflesia ③: copies a Hole trap (negate); hard to remove
             { "is.9940036:3", 0.8 },                          // Aggregator ③
             { "ib.93039339:1", 35 }, { "is.93039339:1", 0.5 }, // TY-PHON ①: lock
             { "is.6983839:1", 0.5 },                          // Tornado Dragon: S/T only

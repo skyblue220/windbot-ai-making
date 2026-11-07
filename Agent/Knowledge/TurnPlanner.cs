@@ -629,7 +629,7 @@ namespace WindBot.Agent.Knowledge
                     if (xid == 0) return false;
                     s.Add(s.Extra, xid, -1);
                     s.Add(s.Grave, xid, 1);
-                    cost += _w.BaseOf("cost_extra_to_grave");
+                    cost += _w.BaseOf("cost_extra_to_grave") + GraveBonus(xid);
                 }
                 else if (l.Location != null && l.Location.Contains("DECK") && !l.Location.Contains("HAND") && l.Relation.Contains("묘지로"))
                 {
@@ -664,9 +664,54 @@ namespace WindBot.Agent.Knowledge
         {
             HashSet<int> allowed = l != null && l.Targets.Count > 0 ? new HashSet<int>(l.Targets) : null;
             return s.Extra.Where(kv => kv.Value > 0 && (allowed == null || allowed.Contains(kv.Key)))
-                          .OrderByDescending(kv => _w.Excluded.Contains(kv.Key))
-                          .ThenBy(kv => ExtraUsefulness(kv.Key))
+                          .OrderBy(kv => FodderCost(kv.Key))
                           .Select(kv => kv.Key).FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Order for sending an Extra Deck card to the GY (lower first): cards whose "sent to the GY" effect
+        /// pays off later (attached, then detached on the opponent's turn), then excluded cards, then the least useful.
+        /// </summary>
+        public double FodderCost(int id)
+        {
+            return -GraveBonus(id) * 100 + (_w.Excluded.Contains(id) ? -1 : 0) + ExtraUsefulness(id) * 0.01;
+        }
+
+        /// <summary>Worth of having this card in the GY: grave_fodder × its best "sent to the GY" trigger (interruption or function value).</summary>
+        public double GraveBonus(int id)
+        {
+            CardEntry c = _db.Get(id);
+            if (c == null || _w.Excluded.Contains(id)) return 0;
+            double best = 0;
+            foreach (EffectEntry e in c.Effects)
+            {
+                if (!e.Kind.StartsWith("유발 효과") || !e.Events.Any(ev => ev.Contains("TO_GRAVE"))) continue;
+                double v = _int.IsInterrupt(c, e) ? _int.Value(c, e, false) : 0;
+                foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
+                {
+                    string f = ValueModel.FunctionOf(l);
+                    if (f != null) v = Math.Max(v, _w.BaseOf(f));
+                }
+                best = Math.Max(best, v);
+            }
+            return best * _w.BaseOf("grave_fodder");
+        }
+
+        /// <summary>What one material of this monster is worth: the interruption uses it fuels (e.g. Detonator ①), 0 for materials only used as costs this turn.</summary>
+        public double MaterialWorth(int id, int mats)
+        {
+            CardEntry c = _db.Get(id);
+            if (c == null || _w.Excluded.Contains(id)) return 0;
+            double v = 0;
+            foreach (EffectEntry e in c.Effects)
+            {
+                if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0) continue;
+                if (e.Kind.Contains("DESTROY_REPLACE")) { if (mats <= 1) v += _int.Value(c, e, false); continue; }
+                if (e.DetachCount <= 0) continue;
+                bool fuels = e.Limit == null || mats / e.DetachCount <= e.Limit.Count; // one fewer material removes a use
+                if (fuels) v += _int.Value(c, e, false) / e.DetachCount;
+            }
+            return v;
         }
 
         private double ExtraUsefulness(int id)
@@ -699,7 +744,9 @@ namespace WindBot.Agent.Knowledge
         {
             for (int k = 0; k < n; ++k)
             {
-                Mon m = from.HasValue && from.Value < s.Mons.Count && s.Mons[from.Value].Mats > 0 ? s.Mons[from.Value] : s.Mons.Where(x => x.Mats > 0).OrderBy(x => x.Mats).FirstOrDefault();
+                // Own materials first; otherwise the monster whose material fuels the least (Duo Drive before Detonator).
+                Mon m = from.HasValue && from.Value < s.Mons.Count && s.Mons[from.Value].Mats > 0 ? s.Mons[from.Value]
+                      : s.Mons.Where(x => x.Mats > 0).OrderBy(x => MaterialWorth(x.Id, x.Mats)).ThenByDescending(x => x.Mats).FirstOrDefault();
                 if (m == null) return;
                 m.Mats--;
                 s.Add(s.Grave, 0, 1); // a detached material goes to the GY (identity unknown)

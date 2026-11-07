@@ -336,7 +336,23 @@ namespace WindBot.Agent
                         if (removal && anyOpponent) r.PreferLow = true; // destroy / banish / bounce: the opponent's cards first
                         foreach (DecisionOption o in r.Options)
                         {
-                            if (o.Controller == 0 && o.CardId != 0) o.Estimate = _planner.Worth(z, o.CardId);
+                            if (o.Controller == 0 && o.CardId != 0)
+                            {
+                                o.Estimate = _planner.Worth(z, o.CardId);
+                                if (o.Location == (int)CardLocation.Overlay)
+                                {
+                                    // Detaching: what the material fuels on the Xyz monster holding it (Detonator ① > Duo Drive).
+                                    ClientCard holder = o.Sequence >= 0 && o.Sequence < _duel.Fields[0].MonsterZone.Length ? _duel.Fields[0].MonsterZone[o.Sequence] : null;
+                                    if (holder != null)
+                                    {
+                                        o.Estimate = _planner.MaterialWorth(holder.Id, holder.Overlays.Count) + o.Estimate * 0.01;
+                                        CardEntry hc = _db.Get(holder.Id);
+                                        o.Info = (o.Info ?? "") + " | 소재 위치: " + (hc != null ? hc.Data.Name : holder.Id.ToString());
+                                    }
+                                }
+                                else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
+                                    o.Estimate = _planner.FodderCost(o.CardId); // same order the plan used (e.g. Ext Ryzeal ① sends Eclipse Twins)
+                            }
                             else if (o.Controller == 1 && removal)
                             {
                                 // Removing an opponent's card: the more it is worth to them, the earlier we pick it.

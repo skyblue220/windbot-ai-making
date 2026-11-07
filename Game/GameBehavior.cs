@@ -1125,7 +1125,7 @@ namespace WindBot.Game
                 }
                 ClientCard card;
                 if (((int)info.location & (int)CardLocation.Overlay) != 0)
-                    card = new ClientCard(id, CardLocation.Overlay, -1, player);
+                    card = new ClientCard(id, CardLocation.Overlay, info.sequence, player); // sequence of the Xyz monster it is attached to
                 else if (info.location == 0)
                     card = new ClientCard(id, 0, 0, player);
                 else
@@ -1183,7 +1183,7 @@ namespace WindBot.Game
                 LocationInfo info = new LocationInfo(packet, _duel.IsFirst);
                 ClientCard card;
                 if (((int)info.location & (int)CardLocation.Overlay) != 0)
-                    card = new ClientCard(id, CardLocation.Overlay, -1, player);
+                    card = new ClientCard(id, CardLocation.Overlay, info.sequence, player); // sequence of the Xyz monster it is attached to
                 else if (info.location == 0)
                     card = new ClientCard(id, 0, 0, player);
                 else
