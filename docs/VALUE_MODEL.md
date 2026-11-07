@@ -268,7 +268,7 @@ S = Σ_{k=0}^{n} γ^k × (기본값_k + 보정값_k)
 | Ryzeal Cross ③ | 효과 무효 (몬스터만), 체인 불가 | 40×0.8 + 5 | 37 |
 | Traptrix Rafflesia ③ | 효과 무효 (Hole 함정 복사) — 무효로 온전히 인정 + 잘 안 떨어지는 몬스터 보너스 (2026-11-07 상향) | 55 + 10 | 65 |
 | Mereologic Aggregator ③ | 효과 무효 (묘지로 갔을 때) | 40×0.8 | 32 |
-| TY-PHON ① ×2 | 봉쇄 (공격력 3000 이상, 서로) — 미러전에서 상대 Detonator를 막지만 내 Detonator ②도 막음. ②(패로 바운스)는 기동 효과라 방해가 아니고 돌파 | 35×0.5 | 18 |
+| TY-PHON ① | 봉쇄 (공격력 3000 이상, 서로) — 미러전에서 상대 Detonator를 막지만 내 Detonator ②도 막음. ②(패로 바운스)는 기동 효과라 방해가 아니고 돌파 | 35×0.5 | 18 |
 | FNo.0 Utopic Future Zexal ③ (2026-11-07 추가) | 컨트롤 탈취, 시점 좁음 (상대가 필드에서 발동 시), 1턴 1번. ②: 다른 카드를 상대 효과 대상으로 못 함(보호, 미반영) | 45×0.67 | 30 |
 | Tornado Dragon | 단순 파괴 (마법·함정만) | 30×0.5 | 15 |
 | Number 104 | 발동 무효, 배틀 한정 | 38×0.8×0.5 | 15 |
@@ -277,7 +277,7 @@ S = Σ_{k=0}^{n} γ^k × (기본값_k + 보정값_k)
 
 **방해에서 제외**: Triple Tactics Talent(내 턴 반격), TY-PHON ②(기동 효과).
 
-**덱 변경 (2026-11-07)**: 효과를 오해해서 넣었던 Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 **Super Starslayer TY-PHON - Sky Crisis**(→ ×2)와 **Number F0: Utopic Future Zexal**(41522092, delta 저장소 카드)을 넣었다. 제외 목록(`exclude.*`)도 지웠다. FNo.0은 같은 랭크 엑시즈 2장을 소재로 하는 엑시즈 위 엑시즈 소환이라, 계획기는 아직 이 카드를 소환하지 못한다(Ray Lancer와 같은 과제).
+**덱 변경 (2026-11-07)**: 효과를 오해해서 넣었던 Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 **Infernal Flame Banshee**(29423048, 랭크 4: ① 소재 1개 제거 → 덱의 화염족 1장 서치 또는 묘지로)와 **Number F0: Utopic Future Zexal**(41522092, delta 저장소 카드)을 넣었다. 제외 목록(`exclude.*`)도 지웠다. FNo.0은 같은 랭크 엑시즈 2장을 소재로 하는 엑시즈 위 엑시즈 소환이라, 계획기는 아직 이 카드를 소환하지 못한다(Ray Lancer와 같은 과제).
 
 ### 7.5 선공 턴 평가 (구현됨, 커밋 `e048b09`)
 

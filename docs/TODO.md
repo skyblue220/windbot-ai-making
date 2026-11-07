@@ -31,9 +31,9 @@
 - [x] 기존 봇(검증용)이 실제 듀얼에서 점수 기반으로 행동을 고르며 작동함을 확인 (2026-11-05, 확인).
 
 ### 덱 구성 메모
-- [x] **덱 변경 (2026-11-07)**: Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 Super Starslayer TY-PHON - Sky Crisis(×2), Number F0: Utopic Future Zexal(41522092)을 넣었다. ProjectIgnis `deck`, `Windbot\Decks`, `WindBot-Git\Decks` 세 ydk 모두 맞춤. 제외 목록 삭제. 방해 종류에 패로 바운스(30)·덱으로 바운스(35)·컨트롤 탈취(45) 추가(`VALUE_MODEL.md` 7.2).
+- [x] **덱 변경 (2026-11-07)**: Dark Rebellion Xyz Dragon of the Four Heavenly Dragons, Exosister Karmael을 빼고 Infernal Flame Banshee(29423048), Number F0: Utopic Future Zexal(41522092)을 넣었다(TY-PHON은 원래 1장 그대로). ProjectIgnis `deck`, `Windbot\Decks`, `WindBot-Git\Decks` 세 ydk 모두 맞춤. 제외 목록 삭제. 방해 종류에 패로 바운스(30)·덱으로 바운스(35)·컨트롤 탈취(45) 추가(`VALUE_MODEL.md` 7.2).
 - [ ] 계획기가 FNo.0(같은 랭크 엑시즈 2장 소재), Ray Lancer 같은 엑시즈 위 엑시즈 소환을 다루게 하기.
-- [ ] TY-PHON ①은 내 Detonator ②도 막는다. 계획기가 TY-PHON을 낼 수 있게 되면 이 자기 봉쇄를 반영해야 한다.
+- [ ] TY-PHON(×1) ①은 내 Detonator ②도 막는다. 계획기가 TY-PHON을 낼 수 있게 되면 이 자기 봉쇄를 반영해야 한다.
 
 ### 빌드 메모
 - 이 PC에는 .NET Framework 4.0 참조 어셈블리가 없다. 프로젝트 파일은 그대로 두고 빌드 시 `-p:TargetFrameworkVersion=v4.8`로 빌드한다 (확인).
