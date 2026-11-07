@@ -90,7 +90,29 @@ namespace WindBot.Agent
                 sb.AppendLine();
                 sb.Append(DescribeValues(db, model, zones));
                 sb.AppendLine("## 턴 계획 (흐름 + 턴 종료 방해 − 효율)");
-                sb.Append(DescribePlan(new TurnPlanner(db, model.Weights), zones));
+                TurnPlanner planner = new TurnPlanner(db, model.Weights);
+                sb.Append(DescribePlan(planner, zones));
+                sb.AppendLine();
+                sb.AppendLine("## 덱에 대상이 없어 0점인 효과 (서치·특수 소환·세트·덱에서 사용)");
+                Dictionary<int, int> left = model.DeckRemaining(zones);
+                Func<int, int> deckLeft = id => { int n; return left.TryGetValue(id, out n) ? n : 0; };
+                int blocked = 0;
+                foreach (CardEntry c in db.Cards.Values)
+                    foreach (EffectEntry e in c.Effects)
+                    {
+                        bool all = ValueModel.DeckBlocked(e, deckLeft, model.Weights.Excluded);
+                        List<string> parts = e.Links.Where(l => ValueModel.DeckDepleted(l, deckLeft, model.Weights.Excluded))
+                                                    .Select(l => l.Relation).ToList();
+                        if (!all && parts.Count == 0) continue;
+                        blocked++;
+                        sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": " + (all ? "효과 전체 0" : "일부 0") + " (" + String.Join(", ", parts.ToArray()) + ")");
+                    }
+                if (blocked == 0) sb.AppendLine("- 없음");
+                sb.AppendLine();
+                sb.AppendLine("## 카드 가치 (카드 선택 시, 덱 잔량 반영)");
+                ZoneSnapshot snap = zones.Snapshot();
+                foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent))
+                    sb.AppendLine("- " + c.Data.Name + ": " + planner.Worth(snap, c.Data.Id).ToString("0.#"));
                 sb.AppendLine();
             }
             if (Config.GetBool("AgentDbInterrupts", hand != null))

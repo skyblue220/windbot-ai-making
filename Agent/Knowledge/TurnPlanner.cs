@@ -249,6 +249,7 @@ namespace WindBot.Agent.Knowledge
             }
 
             public int Materials { get { return Mons.Sum(m => m.Mats); } }
+            public int Left(int id) { return Count(Deck, id); }
         }
 
         private St FromSnapshot(ZoneSnapshot z, GameCardDb db)
@@ -523,7 +524,7 @@ namespace WindBot.Agent.Knowledge
             if (s.Used.Contains(e.UsageKey)) return outs;
             Mon src = sourceMon.HasValue && sourceMon.Value < s.Mons.Count ? s.Mons[sourceMon.Value] : null;
             if (e.DetachCount > (src != null && src.Mats >= e.DetachCount ? src.Mats : s.Materials)) return outs;
-            if (!Conditions(e, s)) return outs;
+            if (!Conditions(e, s) || DeckBlocked(e, s)) return outs;
 
             St b = s.Clone();
             b.Used.Add(e.UsageKey);
@@ -628,6 +629,14 @@ namespace WindBot.Agent.Knowledge
                     s.Add(s.Grave, xid, 1);
                     cost += _w.BaseOf("cost_extra_to_grave");
                 }
+                else if (l.Location != null && l.Location.Contains("DECK") && !l.Location.Contains("HAND") && l.Relation.Contains("묘지로"))
+                {
+                    // e.g. Rafflesia: send a "Hole" trap from the deck. Take one that is still there.
+                    int did = l.Targets.FirstOrDefault(t => s.Count(s.Deck, t) > 0 && !_w.Excluded.Contains(t));
+                    if (did == 0) { if (l.Filter == null || l.Filter.Partial || l.AnyCard) continue; return false; }
+                    s.Add(s.Deck, did, -1);
+                    s.Add(s.Grave, did, 1);
+                }
                 else if (l.Relation.Contains("묘지로"))
                 {
                     // cheapest card in hand (field cards are kept: they carry the interruptions)
@@ -671,10 +680,11 @@ namespace WindBot.Agent.Knowledge
             double v = 0;
             foreach (EffectEntry e in c.Effects)
             {
-                if (s.Used.Contains(e.UsageKey)) continue;
+                if (s.Used.Contains(e.UsageKey) || DeckBlocked(e, s)) continue;
                 if (e.Kind.StartsWith("룰")) v += _w.BaseOf("rule_special_summon");
                 foreach (CardLink l in e.Links.Where(x => x.Role == "effect"))
                 {
+                    if (DeckDepleted(l, s)) continue;
                     string f = ValueModel.FunctionOf(l);
                     if (f != null) v += _w.BaseOf(f);
                 }
@@ -733,7 +743,7 @@ namespace WindBot.Agent.Knowledge
                 {
                     // Per card copy: kept in hand (traps that may activate from hand) or set; its activation is the interruption.
                     EffectEntry act = c.Effects.FirstOrDefault(e => e.Kind.StartsWith("카드의 발동") && _int.IsInterrupt(c, e) && _int.TypeValue(c, e) > 0);
-                    if (act == null) continue;
+                    if (act == null || DeckBlocked(act, s)) continue;
                     bool fromHand = trap && c.TrapActInHand && (!c.TrapActInHandNeedsEmptyField || fieldEmpty);
                     int copies = act.Limit != null ? Math.Min(kv.Value, act.Limit.Count) : kv.Value;
                     for (int i = 0; i < copies; ++i)
@@ -752,7 +762,7 @@ namespace WindBot.Agent.Knowledge
                 }
                 foreach (EffectEntry e in c.Effects)
                 {
-                    if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0) continue;
+                    if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0 || DeckBlocked(e, s)) continue;
                     int uses = e.Limit != null ? Math.Min(kv.Value, e.Limit.Count) : kv.Value;
                     if (e.Range == null || !e.Range.Contains("HAND")) continue;
                     if (e.RequiresEmptyField && !fieldEmpty) continue;
@@ -769,7 +779,7 @@ namespace WindBot.Agent.Knowledge
                 foreach (EffectEntry e in c.Effects)
                 {
                     bool usableHere = e.Kind.StartsWith("카드의 발동") || (e.Range != null && (e.Range.Contains("SZONE") || e.Range.Contains("FZONE")));
-                    if (!usableHere || !_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0 || !keys.Add(e.UsageKey + "#zone")) continue;
+                    if (!usableHere || !_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0 || DeckBlocked(e, s) || !keys.Add(e.UsageKey + "#zone")) continue;
                     if (!FieldConditions(e, s)) continue;
                     double v = _int.Value(c, e, false);
                     int mult = _int.MultipliesByCondition(c, e) ? ConditionCount(e, s) : 1;
@@ -788,6 +798,7 @@ namespace WindBot.Agent.Knowledge
                 foreach (EffectEntry e in c.Effects)
                 {
                     if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0) continue;
+                    if (DeckBlocked(e, s)) { board.Add(Name(c) + "(" + e.Index + ", 덱에 대상 없음 → 0)"); continue; }
                     if (e.Range != null && !e.Range.Contains("MZONE") && !e.Kind.Contains("DESTROY_REPLACE")) continue;
                     int uses;
                     if (e.Kind.Contains("DESTROY_REPLACE")) uses = m.Mats > 0 ? 1 : 0;
@@ -849,6 +860,10 @@ namespace WindBot.Agent.Knowledge
             int lv;
             return int.TryParse(r.Substring(start, end - start), out lv) ? lv : -1;
         }
+
+        /// <summary>Nothing left in the deck for this effect's deck cost or for every card it would bring: it does nothing (value 0).</summary>
+        private bool DeckBlocked(EffectEntry e, St s) { return ValueModel.DeckBlocked(e, s.Left, _w.Excluded); }
+        private bool DeckDepleted(CardLink l, St s) { return ValueModel.DeckDepleted(l, s.Left, _w.Excluded); }
 
         private bool IsMonsterId(int id) { CardEntry c = _db.Get(id); return c != null && (c.Data.Type & 0x1) != 0; }
         private bool IsXyz(int id) { CardEntry c = _db.Get(id); return c != null && (c.Data.Type & 0x800000) != 0; }

@@ -234,6 +234,7 @@ namespace WindBot.Agent.Knowledge
             public List<int> OnField = new List<int>();
             public bool NormalSummon;
             public int Budget = 20000;
+            public int Left(int id) { int n; return DeckLeft.TryGetValue(id, out n) ? n : 0; }
 
             public Ctx Clone()
             {
@@ -418,7 +419,7 @@ namespace WindBot.Agent.Knowledge
             {
                 if (l.Role != "effect") continue;
                 string f = FunctionOf(l);
-                if (f == null || !seen.Add(f)) continue;
+                if (f == null || DeckDepleted(l, ctx.Left, _w.Excluded) || !seen.Add(f)) continue;
                 if (Arrival(l) != null)
                 {
                     if (bestBring == null || _w.BaseOf(f) > _w.BaseOf(bestBring)) bestBring = f;
@@ -449,6 +450,31 @@ namespace WindBot.Agent.Knowledge
 
             function = functions.Count > 0 ? String.Join("+", functions.ToArray()) : "기능 미분류";
             return v;
+        }
+
+        /// <summary>
+        /// The link picks only from our own Deck, its candidates were read completely, and none of them is left there
+        /// (deck list − copies seen elsewhere). Its search / summon / set / use-from-deck then does nothing: value 0.
+        /// Unread or "any card" filters are never treated as empty.
+        /// </summary>
+        public static bool DeckDepleted(CardLink l, Func<int, int> deckLeft, ICollection<int> excluded)
+        {
+            if (l.Opponent || String.IsNullOrEmpty(l.Location) || !l.Location.Contains("DECK")) return false;
+            if (l.Location.Contains("GRAVE") || l.Location.Contains("REMOVED") || l.Location.Contains("HAND") || l.Location.Contains("EXTRA")) return false;
+            if (l.Filter == null || l.Filter.Partial || l.AnyCard || l.Targets.Count == 0) return false;
+            return !l.Targets.Any(t => !excluded.Contains(t) && deckLeft(t) > 0);
+        }
+
+        /// <summary>
+        /// The effect cannot do anything with what is left in the deck: a cost taken from the deck has no candidate,
+        /// or every card it would bring (search / summon / set) comes only from the deck and none is left.
+        /// </summary>
+        public static bool DeckBlocked(EffectEntry e, Func<int, int> deckLeft, ICollection<int> excluded)
+        {
+            foreach (CardLink l in e.Links)
+                if (l.Role == "cost" && DeckDepleted(l, deckLeft, excluded)) return true;
+            List<CardLink> brings = e.Links.Where(l => l.Role == "effect" && !l.Opponent && Arrival(l) != null).ToList();
+            return brings.Count > 0 && brings.All(l => DeckDepleted(l, deckLeft, excluded));
         }
 
         public static string FunctionOf(CardLink l)
@@ -507,6 +533,7 @@ namespace WindBot.Agent.Knowledge
         {
             // If the effect brings a card (summon / search / set), that main pick decides whether it can be activated;
             // side functions (e.g. Plugin's "then attach from deck") do not.
+            if (DeckBlocked(e, ctx.Left, _w.Excluded)) return false; // e.g. Rafflesia with no "Hole" trap left to send
             bool hasMain = e.Links.Any(l => l.Role == "effect" && !l.Opponent && Arrival(l) != null);
             bool needsTarget = false;
             foreach (CardLink l in e.Links)
@@ -574,20 +601,21 @@ namespace WindBot.Agent.Knowledge
                 {
                     if (ctx.UsedKeys.Contains(e.UsageKey)) continue;
                     string unused;
-                    v += Math.Max(0, ShallowValue(c, e, out unused));
+                    v += Math.Max(0, ShallowValue(c, e, ctx, out unused));
                 }
                 if (v < best) best = v;
             }
             return best == double.MaxValue ? 0 : best;
         }
 
-        private double ShallowValue(CardEntry card, EffectEntry e, out string function)
+        private double ShallowValue(CardEntry card, EffectEntry e, Ctx ctx, out string function)
         {
             List<string> functions = new List<string>();
             double v = 0;
+            if (DeckBlocked(e, ctx.Left, _w.Excluded)) { function = "덱에 대상 없음"; return 0; }
             if (e.Kind.StartsWith("룰")) { v += _w.BaseOf("rule_special_summon"); functions.Add("rule"); }
             foreach (CardLink l in e.Links)
-                if (l.Role == "effect") { string f = FunctionOf(l); if (f != null) { v += _w.BaseOf(f); functions.Add(f); } }
+                if (l.Role == "effect" && !DeckDepleted(l, ctx.Left, _w.Excluded)) { string f = FunctionOf(l); if (f != null) { v += _w.BaseOf(f); functions.Add(f); } }
             // Hand traps and removal keep their interaction value even when discarded as a cost.
             if (e.Categories.Contains("DESTROY") || e.Categories.Contains("DISABLE") || e.Categories.Contains("NEGATE"))
             { v += _w.BaseOf("destroy_or_negate"); functions.Add("destroy_or_negate"); }
