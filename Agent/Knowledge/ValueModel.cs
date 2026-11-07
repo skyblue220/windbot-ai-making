@@ -56,6 +56,8 @@ namespace WindBot.Agent.Knowledge
             { "int.handtrap_bonus", 15 },
             { "int.chainproof_bonus", 5 },
             { "int.battle_factor", 0.5 },
+            { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
+            { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
         };
 
         /// <summary>

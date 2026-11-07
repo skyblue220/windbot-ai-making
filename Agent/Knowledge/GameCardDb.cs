@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 #if !NET
 using Mono.Data.Sqlite;
 #else
@@ -60,6 +61,27 @@ namespace WindBot.Agent.Knowledge
         public string Raw;
     }
 
+    /// <summary>
+    /// Protection from battle destruction read from Lua: EFFECT_INDESTRUCTABLE_BATTLE, or EFFECT_DESTROY_REPLACE
+    /// (destroyed instead of... : once, at a cost such as a material).
+    /// </summary>
+    public sealed class BattleGuard
+    {
+        public bool Replace;
+        /// <summary>EFFECT_TYPE_SINGLE: protects the card itself. Otherwise the holder's monsters that match Filter.</summary>
+        public bool SelfOnly;
+        /// <summary>Which of the holder's monsters (static predicates; null = any).</summary>
+        public FilterInfo Filter;
+        /// <summary>Works only while the holder has Xyz material (condition or replacement cost).</summary>
+        public bool NeedsMaterial;
+
+        public string Describe()
+        {
+            return (Replace ? "전투 파괴 대체" : "전투로 파괴되지 않음") + (SelfOnly ? " (자신)" : " (자기 쪽 몬스터" + (Filter != null && Filter.Raw != null ? ": " + Filter.Raw : "") + ")")
+                   + (NeedsMaterial ? ", 소재가 있을 때" : "");
+        }
+    }
+
     public sealed class EffectEntry
     {
         public int Index;
@@ -83,6 +105,8 @@ namespace WindBot.Agent.Knowledge
         public readonly List<CardLink> Links = new List<CardLink>();
         public readonly List<string> Unresolved = new List<string>();
         public string Confidence = "inferred";
+        /// <summary>Battle-destruction protection this effect gives (null if none).</summary>
+        public BattleGuard Guard;
     }
 
     public sealed class CardEntry
@@ -318,6 +342,7 @@ namespace WindBot.Agent.Knowledge
                     c.TrapActInHandNeedsEmptyField = cond.Contains("LOCATION_ONFIELD,0)==0");
                 }
 
+                e.Guard = ReadBattleGuard(def, s, cond);
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
                     if (f != null && f.StartsWith("(inline)")) e.Unresolved.Add("inline function: " + f.Substring(9));
@@ -335,6 +360,46 @@ namespace WindBot.Agent.Knowledge
                 m.Filter = s.ReadFilter(s.Material.FilterExpr);
                 c.Material = m;
             }
+        }
+
+        private static readonly Regex CardFilterCall = new Regex(@"s\.(\w+)\(\s*c\b", RegexOptions.Compiled);
+        private static readonly Regex CardLambda = new Regex(@"function\s*\(\s*e\s*,\s*c\s*\)\s*return\s+(.*?)\s+end", RegexOptions.Compiled);
+        private int _guardFilters;
+
+        private BattleGuard ReadBattleGuard(EffectDef def, LuaScript s, string cond)
+        {
+            string code = def.CodeExpr ?? "";
+            bool indestructible = code.Contains("EFFECT_INDESTRUCTABLE_BATTLE"), replace = code.Contains("EFFECT_DESTROY_REPLACE");
+            if (!indestructible && !replace) return null;
+            BattleGuard g = new BattleGuard { Replace = replace && !indestructible };
+            g.SelfOnly = Names(def.TypeExpr, "EFFECT_TYPE_").Contains("SINGLE");
+            string target = def.Target ?? "";
+            if (!g.SelfOnly)
+            {
+                // Which monsters: a card filter called from the value / target function, or an inline "function(e,c) return ... end".
+                string expr = (def.ValueExpr ?? "") + " " + target;
+                Match call = CardFilterCall.Match(expr);
+                Match lambda = CardLambda.Match(expr);
+                if (call.Success) g.Filter = s.ReadFilter("s." + call.Groups[1].Value);
+                else if (lambda.Success)
+                {
+                    string name = "__guard" + (++_guardFilters);
+                    s.Functions[name] = "return " + lambda.Groups[1].Value + "\n";
+                    g.Filter = s.ReadFilter("s." + name);
+                    g.Filter.Raw = lambda.Groups[1].Value;
+                }
+                else if (target.Length > 0 && !target.StartsWith("(inline)")) g.Filter = s.ReadFilter("s." + target); // SetTarget(s.imtg): function(e,c)
+            }
+            string targetBody = target.StartsWith("(inline)") ? target : (s.ExpandedBody(target) ?? "");
+            g.NeedsMaterial = cond.Contains("GetOverlayCount()>0") || targetBody.Contains("RemoveOverlayCard");
+            return g;
+        }
+
+        /// <summary>Does this guard of the holder cover the target monster (static predicates only)?</summary>
+        public bool GuardCovers(BattleGuard g, CardEntry holder, CardEntry target)
+        {
+            if (g.SelfOnly) return holder == target;
+            return target == null || Matches(target, g.Filter, holder.Data.Id);
         }
 
         private string ClassifyKind(EffectDef d)
@@ -921,6 +986,7 @@ namespace WindBot.Agent.Knowledge
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " ('발동' 제약: 발동 무효되면 다시 발동 가능)" : " ('사용' 제약: 발동 무효돼도 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
                     if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
+                    if (e.Guard != null) sb.AppendLine("  - 전투: " + e.Guard.Describe());
                     foreach (CardLink l in e.Links)
                         sb.AppendLine("  - " + RoleKo(l.Role) + ": " + l.Relation + FilterText(l.Filter)
                             + (l.Opponent && l.Targets.Count == 0 ? " → 상대 카드"

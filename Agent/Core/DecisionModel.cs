@@ -90,6 +90,8 @@ namespace WindBot.Agent.Core
         public bool PreferLow;
         /// <summary>Never answer at random (e.g. targets among the opponent's cards, responses on the opponent's turn).</summary>
         public bool NoExplore;
+        /// <summary>Cancel (when allowed) if no option has a positive estimate, e.g. every attack target loses.</summary>
+        public bool CancelIfNotPositive;
     }
 
     public sealed class Decision

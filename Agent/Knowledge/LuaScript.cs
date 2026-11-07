@@ -78,6 +78,7 @@ namespace WindBot.Agent.Knowledge
         public string CodeExpr;
         public string CategoryExpr;
         public string RangeExpr;
+        public string ValueExpr;
         public string PropertyExpr;
         public string CountLimitExpr;
         public string Condition;
@@ -306,6 +307,7 @@ namespace WindBot.Agent.Knowledge
                 case "Code": e.CodeExpr = args; break;
                 case "Category": e.CategoryExpr = args; break;
                 case "Range": e.RangeExpr = args; break;
+                case "Value": e.ValueExpr = args; break;
                 case "Property": e.PropertyExpr = args; break;
                 case "CountLimit": e.CountLimitExpr = args; break;
                 case "Condition": e.Condition = FuncName(args); break;

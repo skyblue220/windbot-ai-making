@@ -398,9 +398,10 @@ namespace WindBot.Agent
                             foreach (DecisionOption o in r.Options)
                             {
                                 ClientCard t = FieldCard(o);
-                                if (t != null) o.Estimate = BattleMath.Score(_attacker.Attack, t, _duel.Fields[0].LifePoints, _duel.Fields[1].LifePoints);
+                                if (t != null) o.Estimate = BattleMath.Score(_attacker, t, Battle());
                             }
                             r.NoExplore = true;
+                            r.CancelIfNotPositive = true; // the engine lists only legal targets: if all lose, call the attack off
                             break;
                         }
                         r.PreferLow = GiveUpHints.Contains(r.Hint);
@@ -785,12 +786,13 @@ namespace WindBot.Agent
                 actions.Add(new BattlePhaseAction(BattlePhaseAction.BattleAction.Activate, card.ActionIndex));
             }
             List<ClientCard> defenders = _duel.Fields[1].GetMonsters();
+            BattleContext bc = Battle();
             foreach (ClientCard card in battle.AttackableCards)
             {
                 DecisionOption o = CardOption("Attack", card);
                 o.Value = card.CanDirectAttack ? 1 : 0;
                 ClientCard target;
-                o.Estimate = BattleMath.Best(card, defenders, _duel.Fields[0].LifePoints, _duel.Fields[1].LifePoints, out target);
+                o.Estimate = BattleMath.Best(card, defenders, bc, out target);
                 o.Info = "전투 " + (target == null ? "직접 공격" : "→ " + target.Name + (target.IsDefense() ? " 수비 " + target.Defense : " 공격 " + target.Attack)) + " (공 " + card.Attack + ")";
                 r.Options.Add(o);
                 actions.Add(new BattlePhaseAction(BattlePhaseAction.BattleAction.Attack, card.ActionIndex));
@@ -811,6 +813,67 @@ namespace WindBot.Agent
             return chosen < 0 ? new BattlePhaseAction(BattlePhaseAction.BattleAction.ToEndPhase) : actions[chosen];
         }
 
+        /// <summary>Battle math inputs: LP, monster worth (interruptions held on the field) and battle protection from Lua.</summary>
+        private BattleContext Battle()
+        {
+            BattleContext bc = new BattleContext();
+            bc.OwnLp = _duel.Fields[0].LifePoints;
+            bc.OpponentLp = _duel.Fields[1].LifePoints;
+            if (_values == null || _db == null || _planner == null) return bc;
+            bc.LpValue = _values.Weights.BaseOf("battle.lp");
+            double destroy = _values.Weights.BaseOf("battle.destroy");
+            bc.Worth = c => destroy + HeldInterrupts(c);
+            bc.Guard = GuardOf;
+            return bc;
+        }
+
+        /// <summary>Interruptions a monster still offers from the field (e.g. Detonator ② per material, Rafflesia).</summary>
+        private double HeldInterrupts(ClientCard c)
+        {
+            CardEntry ce = c == null ? null : _db.EnsureCard(c.Id, c.Controller == 1);
+            if (ce == null || c.IsFacedown()) return 0;
+            double v = 0;
+            foreach (EffectEntry e in ce.Effects)
+            {
+                if (e.Range == null || !e.Range.Contains("MZONE") || !_planner.Interrupts.IsInterrupt(ce, e)) continue;
+                if (e.DetachCount > 0 && c.Overlays.Count < e.DetachCount) continue;
+                KeyUsage u = _db.PeekUsage(c.Controller, e);
+                if (u != null && e.Limit != null && u.Used >= e.Limit.Count) continue;
+                v += _planner.Interrupts.Value(ce, e, false);
+            }
+            return v;
+        }
+
+        /// <summary>
+        /// Battle protection of a monster from its own side: indestructible (Lua EFFECT_INDESTRUCTABLE_BATTLE) or a destroy
+        /// replacement (EFFECT_DESTROY_REPLACE, e.g. Detonator ③ for its side's Xyz), with the replacement's cost (the material it uses).
+        /// </summary>
+        private KeyValuePair<GuardState, double> GuardOf(ClientCard target)
+        {
+            KeyValuePair<GuardState, double> best = new KeyValuePair<GuardState, double>(GuardState.None, 0);
+            CardEntry te = _db.EnsureCard(target.Id, target.Controller == 1);
+            ClientField side = _duel.Fields[target.Controller];
+            foreach (ClientCard holder in side.GetMonsters().Concat(side.GetSpells()))
+            {
+                if (holder == null || holder.IsFacedown()) continue;
+                CardEntry he = _db.EnsureCard(holder.Id, holder.Controller == 1);
+                if (he == null) continue;
+                foreach (EffectEntry e in he.Effects)
+                {
+                    BattleGuard g = e.Guard;
+                    if (g == null || !_db.GuardCovers(g, he, te)) continue;
+                    if (g.SelfOnly && holder != target) continue;
+                    if (g.NeedsMaterial && holder.Overlays.Count == 0) continue;
+                    KeyUsage u = _db.PeekUsage(target.Controller, e);
+                    if (u != null && e.Limit != null && u.Used >= e.Limit.Count) continue;
+                    if (!g.Replace) return new KeyValuePair<GuardState, double>(GuardState.Indestructible, 0);
+                    if (best.Key == GuardState.None)
+                        best = new KeyValuePair<GuardState, double>(GuardState.Replace, _planner.MaterialWorth(holder.Id, holder.Overlays.Count));
+                }
+            }
+            return best;
+        }
+
         /// <summary>The field card an option points at (monster zone only).</summary>
         private ClientCard FieldCard(DecisionOption o)
         {
@@ -828,7 +891,7 @@ namespace WindBot.Agent
             ClientCard c = FieldCard(o);
             if (c == null || c.IsFacedown()) return false; // flip summons are left to the plan
             ClientCard target;
-            double best = BattleMath.Best(c, _duel.Fields[1].GetMonsters(), _duel.Fields[0].LifePoints, _duel.Fields[1].LifePoints, out target);
+            double best = BattleMath.Best(c, _duel.Fields[1].GetMonsters(), Battle(), out target);
             if (c.IsDefense()) return best > 0;
             return best <= 0 && c.Defense > c.Attack;
         }

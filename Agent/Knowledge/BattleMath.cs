@@ -4,49 +4,63 @@ using WindBot.Game;
 
 namespace WindBot.Agent.Knowledge
 {
+    /// <summary>How a monster is protected from battle destruction right now (from the Lua of the cards on its side).</summary>
+    public enum GuardState { None, Replace, Indestructible }
+
+    /// <summary>What the battle math needs from the rest of the agent.</summary>
+    public sealed class BattleContext
+    {
+        public int OwnLp;
+        public int OpponentLp;
+        /// <summary>Value of the damage dealt for a full 8000 LP.</summary>
+        public double LpValue = 100;
+        /// <summary>Value of a monster leaving the field: base plus the interruptions it holds there.</summary>
+        public Func<ClientCard, double> Worth = c => 30;
+        /// <summary>Its protection from battle destruction, and what using a replacement costs its controller.</summary>
+        public Func<ClientCard, KeyValuePair<GuardState, double>> Guard = c => new KeyValuePair<GuardState, double>(GuardState.None, 0);
+    }
+
     /// <summary>
-    /// Battle outcomes from the stats on the field (no card effects yet: protection, piercing, stat changes in the damage step).
-    /// Scores only compare battle options with each other; 0 is "no attack".
+    /// Battle outcomes from the field: stats, the monsters' worth, and battle protection read from Lua.
+    /// Not yet: stat changes during the damage step, piercing, damage prevention. 0 means "no attack".
     /// </summary>
     public static class BattleMath
     {
-        /// <summary>Destroying a monster by battle, before the damage it deals.</summary>
-        public const double DestroyValue = 1000;
-        /// <summary>Losing our attacker.</summary>
-        public const double LoseValue = 1000;
-        /// <summary>An attack whose damage would take our own LP to 0.</summary>
-        public const double SelfKill = -1e6;
+        public const double Lethal = 1e6;
 
-        /// <summary>Outcome of <paramref name="attacker"/> (ATK <paramref name="atk"/>) attacking <paramref name="target"/>, or a direct attack when null.</summary>
-        public static double Score(int atk, ClientCard target, int ownLp, int opponentLp)
+        private static double Damage(int amount, BattleContext ctx) { return amount / 8000.0 * ctx.LpValue; }
+
+        /// <summary>What the controller loses when this monster is destroyed by battle (nothing when it cannot be).</summary>
+        private static double Loss(ClientCard c, BattleContext ctx)
         {
-            if (target == null) return atk >= opponentLp ? -SelfKill : atk;
+            KeyValuePair<GuardState, double> g = ctx.Guard(c);
+            if (g.Key == GuardState.Indestructible) return 0;
+            if (g.Key == GuardState.Replace) return g.Value;
+            return ctx.Worth(c);
+        }
+
+        /// <summary>Outcome of this attacker attacking target, or a direct attack when target is null.</summary>
+        public static double Score(ClientCard attacker, ClientCard target, BattleContext ctx)
+        {
+            int atk = attacker.Attack;
+            if (target == null) return atk >= ctx.OpponentLp ? Lethal : Damage(atk, ctx);
             if (target.IsFacedown() && target.IsDefense())
-            {
-                // Unknown DEF: worth trying only with a big attacker; the flip itself may hurt.
-                return atk >= 2000 ? DestroyValue * 0.5 : -1;
-            }
+                return atk >= 2000 ? ctx.Worth(target) * 0.5 : -1; // unknown DEF: worth trying only with a big attacker
             if (target.IsAttack())
             {
                 int t = target.Attack;
-                if (atk > t)
-                {
-                    int dmg = atk - t;
-                    return dmg >= opponentLp ? -SelfKill : DestroyValue + dmg;
-                }
-                if (atk == t) return DestroyValue - LoseValue; // both destroyed: an even trade
-                int recoil = t - atk;
-                return recoil >= ownLp ? SelfKill : -LoseValue - recoil;
+                if (atk > t) return atk - t >= ctx.OpponentLp ? Lethal : Loss(target, ctx) + Damage(atk - t, ctx);
+                if (atk == t) return Loss(target, ctx) - Loss(attacker, ctx);
+                return t - atk >= ctx.OwnLp ? -Lethal : -Loss(attacker, ctx) - Damage(t - atk, ctx);
             }
             int def = target.Defense;
-            if (atk > def) return DestroyValue;
-            if (atk == def) return -1; // nothing happens
-            int back = def - atk;
-            return back >= ownLp ? SelfKill : -back;
+            if (atk > def) return Loss(target, ctx);
+            if (atk == def) return -1;
+            return def - atk >= ctx.OwnLp ? -Lethal : -Damage(def - atk, ctx);
         }
 
         /// <summary>Best outcome of this attacker over the possible targets (direct attack when allowed).</summary>
-        public static double Best(ClientCard attacker, IList<ClientCard> targets, int ownLp, int opponentLp, out ClientCard bestTarget)
+        public static double Best(ClientCard attacker, IList<ClientCard> targets, BattleContext ctx, out ClientCard bestTarget)
         {
             bestTarget = null;
             double best = double.NegativeInfinity;
@@ -55,12 +69,12 @@ namespace WindBot.Agent.Knowledge
             {
                 if (t == null) continue;
                 any = true;
-                double s = Score(attacker.Attack, t, ownLp, opponentLp);
+                double s = Score(attacker, t, ctx);
                 if (s > best) { best = s; bestTarget = t; }
             }
             if (!any || attacker.CanDirectAttack)
             {
-                double s = Score(attacker.Attack, null, ownLp, opponentLp);
+                double s = Score(attacker, null, ctx);
                 if (s > best) { best = s; bestTarget = null; }
             }
             return best;

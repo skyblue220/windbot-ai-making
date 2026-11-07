@@ -41,6 +41,11 @@ namespace WindBot.Agent.Core
             }
 
             Decision d = new Decision();
+            if (request.CancelIfNotPositive && request.Cancelable && scored.All(i => request.Options[i].Estimate <= 0))
+            {
+                d.Canceled = true;
+                return d;
+            }
             Func<int, double> key = i => request.PreferLow ? -request.Options[i].Estimate : request.Options[i].Estimate;
             if (request.Shape == RequestShape.One)
             {
