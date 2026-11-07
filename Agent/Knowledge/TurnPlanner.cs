@@ -110,6 +110,8 @@ namespace WindBot.Agent.Knowledge
         public string Kind;   // ns, rule, spell, ignition, xyz, trigger
         public int CardId;
         public int EffectIndex;
+        /// <summary>The card this move searches, summons or sets (0 if none): picks during the move follow it.</summary>
+        public int TargetId;
         public string Text;
         public double Gain;
     }
@@ -422,7 +424,7 @@ namespace WindBot.Agent.Knowledge
                             Mon m = new Mon { Id = t };
                             n.Mons.Add(m);
                             double gain = _w.BaseOf("extra_normal_summon") + _w.OffsetOf(id, e.Index);
-                            AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "hand", CardId = id, EffectIndex = e.Index, Text = Name(c) + " 기동(" + e.Index + ") → " + Name(tc) + " 추가 일반 소환", Gain = gain });
+                            AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "hand", CardId = id, EffectIndex = e.Index, TargetId = t, Text = Name(c) + " 기동(" + e.Index + ") → " + Name(tc) + " 추가 일반 소환", Gain = gain });
                         }
                     }
                 }
@@ -583,7 +585,7 @@ namespace WindBot.Agent.Knowledge
                 St n = b.Clone();
                 if (fromDeck) n.Add(n.Deck, t, -1); else n.Add(n.Grave, t, -1);
                 CardEntry tc = _db.Get(t);
-                PlanMove mv = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, Gain = baseGain + fBase, Text = label + " → " + Name(tc) };
+                PlanMove mv = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, TargetId = t, Gain = baseGain + fBase, Text = label + " → " + Name(tc) };
                 if (arrival == "HAND")
                 {
                     n.Add(n.Hand, t, 1);

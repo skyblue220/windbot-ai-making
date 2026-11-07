@@ -51,8 +51,9 @@ namespace WindBot.Agent.Core
             }
 
             // Many: estimated options first (best first), then the rest in random order.
+            // Min 0 means "may stop" only in SelectUnselect (enough already selected); elsewhere canceling aborts the action (e.g. a summon cost).
             int n = request.Options.Count;
-            if (request.Min == 0 && request.Cancelable)
+            if (request.Min == 0 && request.Cancelable && request.Kind == RequestKind.SelectUnselect)
             {
                 // Enough is already selected (e.g. Xyz materials after the minimum): stop when giving up cards,
                 // otherwise take one more only if it is worth something.

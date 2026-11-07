@@ -89,7 +89,7 @@ namespace WindBot.Agent.Knowledge
         public double EfficiencyPerHandCard = 10;
 
         /// <summary>Probability that the value policy picks a random legal answer instead (exploration for learning).</summary>
-        public double Explore = 0.1;
+        public double Explore = 0; // random steps lose real duels; turn on only for controlled experiments
 
         /// <summary>Cards left out of every evaluation (e.g. put in the deck by mistake). Key in the file: "exclude.&lt;cardId&gt;": 1.</summary>
         public readonly HashSet<int> Excluded = new HashSet<int>();

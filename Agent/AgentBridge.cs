@@ -41,6 +41,10 @@ namespace WindBot.Agent
         private GameCardDb _db;
         private ValueModel _values;
         private TurnPlanner _planner;
+        /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
+        private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
+        private readonly List<PlanMove> _planAhead = new List<PlanMove>();
+        private const double PlanTargetBonus = 1000;
         private DuelZoneView _zones;
         private int _pendingRuleSummon;
 
@@ -203,6 +207,7 @@ namespace WindBot.Agent
             // Main phase on our turn: plan the rest of the turn once, then read each option's best plan.
             List<PlanResult> byFirst = null;
             PlanResult stop = null;
+            _optionPlans.Clear();
             if (r.Kind == RequestKind.Idle && _planner != null && _duel.Player == 0)
             {
                 try { _planner.Plan(_zones.Snapshot(), out byFirst, out stop); }
@@ -216,6 +221,7 @@ namespace WindBot.Agent
                     PlanResult p = PlanFor(o, byFirst, stop);
                     if (p != null)
                     {
+                        _optionPlans[o] = p;
                         o.Estimate = p.Value;
                         o.Info = (o.CardId != 0 ? (_db.Get(o.CardId) != null ? _db.Get(o.CardId).Data.Name : "") + " | " : "") + "계획 " + p.Describe();
                         continue;
@@ -340,8 +346,28 @@ namespace WindBot.Agent
                             }
                         }
                         if (anyOpponent) r.NoExplore = true;
+                        if (!r.PreferLow) FollowPlan(r);
                         break;
                     }
+            }
+        }
+
+        /// <summary>
+        /// Search / summon / set picks: the card the plan taken in the main phase expects comes first,
+        /// so a pick by current worth does not break the plan (e.g. searching Node instead of the planned Star).
+        /// </summary>
+        private void FollowPlan(DecisionRequest r)
+        {
+            for (int i = 0; i < _planAhead.Count; ++i)
+            {
+                int target = _planAhead[i].TargetId;
+                if (target == 0) continue;
+                DecisionOption hit = r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == target);
+                if (hit == null) continue;
+                hit.Estimate = (double.IsNaN(hit.Estimate) ? 0 : hit.Estimate) + PlanTargetBonus;
+                hit.Info = (hit.Info ?? "") + " | 계획대로: " + _planAhead[i].Text;
+                _planAhead.RemoveRange(0, i + 1);
+                return;
             }
         }
 
@@ -376,6 +402,14 @@ namespace WindBot.Agent
             }
             ValuePolicy vp = _policy as ValuePolicy;
             _log.Decision(request, state, decision, vp != null && vp.LastExplored);
+            if (request.Kind == RequestKind.Idle)
+            {
+                // Remember the rest of the plan taken, for the picks that its moves ask for.
+                _planAhead.Clear();
+                PlanResult taken;
+                if (!decision.Canceled && decision.Indices.Count > 0 && _optionPlans.TryGetValue(request.Options[decision.Indices[0]], out taken))
+                    _planAhead.AddRange(taken.Moves);
+            }
             return decision;
         }
 
