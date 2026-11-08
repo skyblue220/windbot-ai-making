@@ -354,6 +354,7 @@ namespace WindBot.Agent.Knowledge
                     if (!e.Kind.StartsWith("카드의 발동") || ctx.UsedKeys.Contains(e.UsageKey)) continue;
                     ChainResult r = FromEffect(card, e, ctx.Clone(), step);
                     AddHeldInterrupts(r, card, step);
+                    AddZoneIgnition(r, card, ctx, step + 1);
                     if (r.Value > best.Value) best = r;
                 }
                 return best;
@@ -431,7 +432,7 @@ namespace WindBot.Agent.Knowledge
                     Take(t, l, c);
                     ChainResult next;
                     if (arrival == "HAND") next = FromHand(target, c, step + 1, e.BlocksNormalSummonOfAdded);
-                    else if (arrival == "SET") next = Placed(target, step + 1); // set: the interruption it holds (a set field spell is activated on our turn)
+                    else if (arrival == "SET") next = Placed(target, step + 1, c); // set: the interruption it holds (a set field spell is activated on our turn)
                     else next = Arrive(target, arrival, c, step + 1);
                     if (next.Value > bestNext.Value) bestNext = next;
                 }
@@ -474,12 +475,28 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>A spell / trap put on the field (set from the deck, or a trap in hand to be set): its held interruptions.</summary>
-        private ChainResult Placed(CardEntry card, int step)
+        private ChainResult Placed(CardEntry card, int step, Ctx ctx = null)
         {
             ChainResult r = new ChainResult();
             if (card == null || step >= _w.MaxSteps || _w.Excluded.Contains(card.Data.Id)) return r;
             AddHeldInterrupts(r, card, step);
+            if (ctx != null && (card.Data.Type & 0x80000) != 0) AddZoneIgnition(r, card, ctx, step + 1); // a set field spell is activated on our turn
             return r;
+        }
+
+        /// <summary>After a field / continuous spell is face-up: the best ignition effect it can use from its zone (e.g. Ryzeal Cross ②).</summary>
+        private void AddZoneIgnition(ChainResult r, CardEntry card, Ctx ctx, int step)
+        {
+            ChainResult best = new ChainResult();
+            foreach (EffectEntry e in card.Effects)
+            {
+                if (!e.Kind.StartsWith("기동") || e.Range == null || !(e.Range.Contains("FZONE") || e.Range.Contains("SZONE"))) continue;
+                ChainResult z = FromEffect(card, e, ctx.Clone(), step);
+                if (z.Value > best.Value) best = z;
+            }
+            if (best.Value <= 0) return;
+            r.Steps.AddRange(best.Steps);
+            r.Value += best.Value;
         }
 
         /// <summary>Base value of the effect itself (sum over what it does) minus costs.</summary>

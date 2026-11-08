@@ -50,6 +50,8 @@ namespace WindBot.Agent.Knowledge
         public FilterInfo Filter;
         public readonly List<int> Targets = new List<int>();
         public string SourceFunction;
+        /// <summary>Cards picked at once (Lua's minimum, e.g. Ryzeal Cross ②: 2 from the GY).</summary>
+        public int Count = 1;
     }
 
     public sealed class CountLimit
@@ -518,6 +520,7 @@ namespace WindBot.Agent.Knowledge
                 link.Location = loc;
                 link.Opponent = !self;
                 link.SourceFunction = sel.Function;
+                link.Count = sel.Min;
                 link.Filter = s.ReadFilter(sel.Filter);
                 link.Filter.Raw = sel.Filter + (link.Filter.Raw != null && link.Filter.Raw != sel.Filter ? " = " + link.Filter.Raw : "");
                 if (role == "condition")

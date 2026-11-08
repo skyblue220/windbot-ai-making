@@ -222,7 +222,8 @@ namespace WindBot.Agent
                         bool monster = c != null && (c.Data.Type & 0x1) != 0;
                         kind = o.Location == (int)CardLocation.Hand ? (monster ? "hand" : "spell")
                              : o.Location == (int)CardLocation.MonsterZone ? "ignition"
-                             : o.Location == (int)CardLocation.SpellZone || o.Location == (int)CardLocation.FieldZone ? "setspell" : null;
+                             : o.Location == (int)CardLocation.SpellZone || o.Location == (int)CardLocation.FieldZone
+                                 ? (e != null && e.Kind.StartsWith("기동") ? "zone" : "setspell") : null;
                         break;
                     }
             }
@@ -431,6 +432,8 @@ namespace WindBot.Agent
                                 }
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
                                     o.Estimate = _planner.FodderCost(o.CardId); // same order the plan used (e.g. Ext Ryzeal ① sends Eclipse Twins)
+                                else if (o.Location == (int)CardLocation.Grave && r.Hint == 507 /* ToDeck */)
+                                    o.Estimate = -_planner.ReturnPriority(z, o.CardId); // GY → deck (Cross ②): cards that refuel a search next turn first
                             }
                             else if (o.Controller == 1 && removal)
                             {
@@ -478,16 +481,20 @@ namespace WindBot.Agent
             {
                 PlanMove m = _planAhead[i];
                 if (i > 0 && m.Kind != "trigger") return;
-                foreach (int id in m.CostIds)
+                // Every card of this move the request can take (a pick of 2, e.g. Cross ② returning 2 from the GY).
+                bool any = false;
+                foreach (int id in m.CostIds.ToList())
                 {
-                    DecisionOption hit = r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == id && o.Location == (int)CardLocation.Hand)
-                                      ?? r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == id);
+                    DecisionOption hit = r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == id && o.Location == (int)CardLocation.Hand && o.Estimate > -PlanTargetBonus / 2)
+                                      ?? r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == id && !(o.Estimate <= -PlanTargetBonus / 2));
                     if (hit == null) continue;
                     hit.Estimate = (double.IsNaN(hit.Estimate) ? 0 : hit.Estimate) - PlanTargetBonus;
-                    hit.Info = (hit.Info ?? "") + " | 계획대로 코스트: " + m.Text;
+                    hit.Info = (hit.Info ?? "") + " | 계획대로: " + m.Text;
                     m.CostIds.Remove(id);
-                    return;
+                    any = true;
+                    if (r.Max <= 1) return;
                 }
+                if (any) return;
             }
         }
 

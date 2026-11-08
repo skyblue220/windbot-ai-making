@@ -117,7 +117,18 @@ namespace WindBot.Agent
                     int id;
                     if (int.TryParse(s.Trim(), out id)) zones.Add("HAND", id);
                 }
-                sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 필드·묘지 비어 있음, 일반 소환 가능)");
+                // Optional GY and face-up spells for the test, e.g. AgentDbGrave=35844557,34022970 AgentDbSpells=6798031
+                foreach (var extra in new[] { new KeyValuePair<string, string>("GRAVE", "AgentDbGrave"), new KeyValuePair<string, string>("SZONE", "AgentDbSpells") })
+                {
+                    string list = Config.GetString(extra.Value);
+                    if (list == null) continue;
+                    foreach (string s in list.Split(','))
+                    {
+                        int id;
+                        if (int.TryParse(s.Trim(), out id)) zones.Add(extra.Key, id);
+                    }
+                }
+                sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 묘지: " + (Config.GetString("AgentDbGrave") ?? "없음") + ", 앞면 마법: " + (Config.GetString("AgentDbSpells") ?? "없음") + ", 일반 소환 가능)");
                 sb.AppendLine();
                 sb.Append(DescribeValues(db, model, zones));
                 sb.AppendLine("## 턴 계획 (흐름 + 턴 종료 방해 − 효율)");

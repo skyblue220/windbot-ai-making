@@ -119,6 +119,8 @@ namespace WindBot.Agent.Knowledge
         public bool Negated;
         /// <summary>Position of the call in the function body (to find the action that uses the picked cards).</summary>
         public int Index;
+        /// <summary>Minimum number of cards picked / required (the argument after the locations), 1 when not a number.</summary>
+        public int Min = 1;
 
         /// <summary>Calls that only check existence/count rather than pick cards to act on.</summary>
         public bool IsCheck
@@ -174,10 +176,10 @@ namespace WindBot.Agent.Knowledge
         private static readonly Regex StringId = new Regex(@"aux\.Stringid\(\s*id\s*,\s*(\d+)\s*\)", RegexOptions.Compiled);
         private static readonly Regex FuncRef = new Regex(@"^s\.(\w+)$", RegexOptions.Compiled);
         private static readonly Regex SelectWithPlayer = new Regex(
-            @"Duel\.(SelectMatchingCard|SelectTarget|SelectReleaseGroup)\(\s*\w+\s*,\s*([\w\.]+(?:\([^()]*\))?)\s*,\s*\w+\s*,\s*([A-Z_|]+|0)\s*,\s*([A-Z_|]+|0)",
+            @"Duel\.(SelectMatchingCard|SelectTarget|SelectReleaseGroup)\(\s*\w+\s*,\s*([\w\.]+(?:\([^()]*\))?)\s*,\s*\w+\s*,\s*([A-Z_|]+|0)\s*,\s*([A-Z_|]+|0)(?:\s*,\s*(\d+))?",
             RegexOptions.Compiled);
         private static readonly Regex SelectNoPlayer = new Regex(
-            @"Duel\.(GetMatchingGroup|GetMatchingGroupCount|IsExistingMatchingCard|IsExistingTarget|GetFirstMatchingCard)\(\s*([\w\.]+(?:\([^()]*\))?)\s*,\s*\w+\s*,\s*([A-Z_|]+|0)\s*,\s*([A-Z_|]+|0)",
+            @"Duel\.(GetMatchingGroup|GetMatchingGroupCount|IsExistingMatchingCard|IsExistingTarget|GetFirstMatchingCard)\(\s*([\w\.]+(?:\([^()]*\))?)\s*,\s*\w+\s*,\s*([A-Z_|]+|0)\s*,\s*([A-Z_|]+|0)(?:\s*,\s*(\d+))?",
             RegexOptions.Compiled);
         private static readonly Regex DuelCall = new Regex(@"Duel\.(\w+)\(", RegexOptions.Compiled);
         private static readonly Regex PredicateCall = new Regex(@"(not\s+)?c:(Is\w+)\(([^()]*)\)", RegexOptions.Compiled);
@@ -373,7 +375,8 @@ namespace WindBot.Agent.Knowledge
                     result.Add(new Selection
                     {
                         Function = function, Call = m.Groups[1].Value, Filter = m.Groups[2].Value,
-                        SelfLocation = m.Groups[3].Value, OpponentLocation = m.Groups[4].Value, Negated = negated, Index = m.Index
+                        SelfLocation = m.Groups[3].Value, OpponentLocation = m.Groups[4].Value, Negated = negated, Index = m.Index,
+                        Min = m.Groups[5].Success ? Math.Max(1, int.Parse(m.Groups[5].Value, CultureInfo.InvariantCulture)) : 1
                     });
                 }
             result.Sort((a, b) => a.Index.CompareTo(b.Index));

@@ -256,10 +256,17 @@ namespace WindBot.Agent.Knowledge
             public HashSet<int> NoNormalSummon = new HashSet<int>();
             public bool NS;
             public int HandSpent;
+            /// <summary>Cards drawn by our effects this turn (unknown cards: valued by the deck's expected draw at the end).</summary>
+            public int Draws;
+            /// <summary>Cards put on the bottom of the deck: searchable again, not drawn.</summary>
+            public List<int> Bottom = new List<int>();
+            /// <summary>End-of-turn worth already fixed by a move (e.g. a card returned to the deck refuels a search next turn).</summary>
+            public double Bonus;
 
             public St Clone()
             {
-                St s = new St { NS = NS, HandSpent = HandSpent };
+                St s = new St { NS = NS, HandSpent = HandSpent, Draws = Draws, Bonus = Bonus };
+                s.Bottom.AddRange(Bottom);
                 foreach (var kv in Hand) s.Hand[kv.Key] = kv.Value;
                 foreach (var kv in Orig) s.Orig[kv.Key] = kv.Value;
                 foreach (Mon m in Mons) s.Mons.Add(m.Clone());
@@ -284,7 +291,8 @@ namespace WindBot.Agent.Knowledge
                 foreach (int i in Inactive.OrderBy(x => x)) sb.Append('s').Append(i).Append(',');
                 sb.Append('|').Append(Grave.Values.Sum()).Append('|');
                 foreach (string u in Used.OrderBy(x => x, StringComparer.Ordinal)) sb.Append(u).Append(',');
-                sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent);
+                sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent).Append('|').Append(Draws);
+                foreach (int i in Bottom.OrderBy(x => x)) sb.Append('b').Append(i);
                 foreach (int i in NoNormalSummon.OrderBy(x => x)) sb.Append('!').Append(i);
                 return sb.ToString();
             }
@@ -355,6 +363,7 @@ namespace WindBot.Agent.Knowledge
         {
             _memo = new Dictionary<string, PlanResult>(StringComparer.Ordinal);
             _next.Clear();
+            _drawWorth.Clear();
             St s = FromSnapshot(z, _db);
             stop = StopResult(s);
             byFirstMove = new List<PlanResult>();
@@ -437,7 +446,7 @@ namespace WindBot.Agent.Knowledge
         {
             PlanResult r = new PlanResult();
             r.EndValue = EndOfTurn(s, r.EndBoard);
-            r.FollowValue = FollowTerm(s);
+            r.FollowValue = FollowTerm(s) + s.Bonus + s.Draws * DrawExpect(s);
             r.HandSpent = s.HandSpent;
             r.Value = r.EndValue + r.FollowValue - _w.EfficiencyPerHandCard * s.HandSpent;
             return r;
@@ -549,6 +558,15 @@ namespace WindBot.Agent.Knowledge
                     foreach (var r in Resolve(s, c, e, i, "ignition", false))
                         result.Add(r);
             }
+            // Ignition effects of face-up spells in their zone (e.g. Ryzeal Cross ②: 2 Ryzeal from the GY to the deck, draw 1)
+            foreach (int id in s.Spells.Distinct().ToList())
+            {
+                CardEntry c = _db.Get(id);
+                if (c == null || (c.Data.Type & 0x2) == 0 || _w.Excluded.Contains(id)) continue;
+                foreach (EffectEntry e in c.Effects.Where(x => x.Kind.StartsWith("기동") && x.Range != null && (x.Range.Contains("FZONE") || x.Range.Contains("SZONE"))))
+                    foreach (var r in Resolve(s, c, e, null, "zone", false))
+                        result.Add(r);
+            }
             // Xyz summon with two level-N monsters we control
             foreach (int xid in s.Extra.Where(x => x.Value > 0).Select(x => x.Key).ToList())
             {
@@ -611,7 +629,7 @@ namespace WindBot.Agent.Knowledge
             Detach(b, src != null ? (int?)s.Mons.IndexOf(src) : null, e.DetachCount);
 
             double baseGain = cost + e.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(c.Data.Id, e.Index);
-            string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" ? "기동" : "발동") + "(" + e.Index + ")" + CostText(paid);
+            string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" || kind == "zone" ? "기동" : "발동") + "(" + e.Index + ")" + CostText(paid);
 
             // Side functions that do not bring a card.
             foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
@@ -633,9 +651,28 @@ namespace WindBot.Agent.Knowledge
                     int xid = PickExtraFodder(b);
                     if (xid != 0) { b.Add(b.Extra, xid, -1); b.Add(b.Grave, xid, 1); baseGain += _w.BaseOf(f); }
                 }
-                else if (f == "grave_to_deck") baseGain += _w.BaseOf(f);
+                else if (f == "grave_to_deck")
+                {
+                    if (NextTurnValue == null) { baseGain += _w.BaseOf(f); continue; }
+                    List<int> back = PickReturns(b, l);
+                    if (back == null) return outs; // not enough cards in the GY: cannot be activated
+                    foreach (int id in back)
+                    {
+                        b.Bonus += ReturnValue(b, id);
+                        b.Add(b.Grave, id, -1);
+                        if (id == 0) continue;
+                        if (IsExtraType(_db.Get(id))) b.Add(b.Extra, id, 1);
+                        else { b.Add(b.Deck, id, 1); b.Bottom.Add(id); }
+                    }
+                    paid.AddRange(back.Where(x => x != 0));
+                    label += " [덱으로: " + String.Join(", ", back.Select(x => x == 0 ? "소재" : Name(_db.Get(x))).ToArray()) + "]";
+                }
             }
-            if (e.Categories.Contains("DRAW")) baseGain += _w.BaseOf("draw");
+            if (e.Categories.Contains("DRAW"))
+            {
+                if (NextTurnValue != null) { b.Draws++; label += " +드로우"; }
+                else baseGain += _w.BaseOf("draw");
+            }
 
             // Main function: bring one card (branch over distinct targets).
             CardLink main = e.Links.Where(x => x.Role == "effect" && !x.Opponent && ValueModel.FunctionOf(x) != null && Arrival(x) != null)
@@ -827,6 +864,115 @@ namespace WindBot.Agent.Knowledge
             // A card in hand whose effects are spent this turn still starts next turn (the last copy held is the one given up).
             int copies = s.Count(s.Hand, c.Data.Id);
             if (copies > 0) v = Math.Max(v, ValueModel.FollowOf(_w, NextTurn(c.Data.Id), copies));
+            return v;
+        }
+
+        // ---------------------------------------------------------- returning to the deck, drawing
+
+        /// <summary>
+        /// Worth of putting this card back in the deck: if none is left there and one of our effects fetches it from the deck
+        /// (search / summon / set), next turn that pick works again: follow.discount × the best such function's base.
+        /// </summary>
+        private double ReturnValue(St s, int id)
+        {
+            if (id == 0) return 0;
+            CardEntry card = _db.Get(id);
+            if (card == null || (!IsExtraType(card) && s.Left(id) > 0)) return 0;
+            double best = 0;
+            foreach (CardEntry c in _db.Cards.Values)
+            {
+                if (c.Opponent) continue;
+                foreach (EffectEntry e in c.Effects)
+                    foreach (CardLink l in e.Links)
+                    {
+                        if (l.Role != "effect" || l.Opponent || l.Location == null || !l.Location.Contains("DECK") || !l.Targets.Contains(id)) continue;
+                        string f = ValueModel.FunctionOf(l);
+                        if (f != null) best = Math.Max(best, _w.BaseOf(f));
+                    }
+            }
+            return _w.BaseOf("follow.discount") * best;
+        }
+
+        /// <summary>What a card in the GY still does for us there: the best grave function (revive, attach) of an effect that picks it.</summary>
+        private double GraveUse(int id)
+        {
+            if (id == 0) return 0;
+            double best = 0;
+            foreach (CardEntry c in _db.Cards.Values)
+            {
+                if (c.Opponent) continue;
+                foreach (EffectEntry e in c.Effects)
+                    foreach (CardLink l in e.Links)
+                    {
+                        if (l.Role != "effect" || l.Opponent || l.Location == null || !l.Location.Contains("GRAVE") || !l.Targets.Contains(id)) continue;
+                        string f = ValueModel.FunctionOf(l);
+                        if (f == "special_summon_from_grave" || f == "attach_from_grave") best = Math.Max(best, _w.BaseOf(f));
+                    }
+            }
+            return best * _w.BaseOf("follow.discount");
+        }
+
+        /// <summary>The cards a "GY → deck" effect returns: the ones worth most back in the deck and least in the GY. Null if the GY has too few.</summary>
+        private List<int> PickReturns(St s, CardLink l)
+        {
+            HashSet<int> ok = new HashSet<int>(l.Targets);
+            bool any = l.Filter == null || l.Filter.Partial || l.AnyCard;
+            List<int> pool = new List<int>();
+            foreach (var kv in s.Grave.Where(x => x.Value > 0))
+                if (kv.Key == 0 || any || ok.Contains(kv.Key)) // detached materials (identity unknown) are counted as fitting
+                    for (int i = 0; i < kv.Value; ++i) pool.Add(kv.Key);
+            if (pool.Count < l.Count) return null;
+            List<int> picks = new List<int>();
+            foreach (int id in pool.OrderByDescending(x => ReturnValue(s, x) - GraveUse(x)))
+            {
+                if (picks.Count >= l.Count) break;
+                // a second copy of the same card refuels nothing more
+                if (picks.Contains(id) && id != 0 && pool.Any(x => !picks.Contains(x))) continue;
+                picks.Add(id);
+            }
+            while (picks.Count < l.Count) picks.Add(pool.First(x => picks.Count(y => y == x) < pool.Count(y => y == x)));
+            return picks;
+        }
+
+        /// <summary>Priority for returning one of our GY cards to the deck (higher first), for the engine's pick.</summary>
+        public double ReturnPriority(ZoneSnapshot z, int id)
+        {
+            return ReturnValue(FromSnapshot(z, _db), id) - GraveUse(id);
+        }
+
+        private readonly Dictionary<int, double> _drawWorth = new Dictionary<int, double>();
+
+        /// <summary>Expected worth of one unknown draw: over the cards left in the deck above the ones put on the bottom.</summary>
+        private double DrawExpect(St s)
+        {
+            Dictionary<int, int> pool = new Dictionary<int, int>(s.Deck);
+            foreach (int id in s.Bottom) if (pool.ContainsKey(id)) pool[id] = Math.Max(0, pool[id] - 1);
+            int n = pool.Values.Sum();
+            if (n <= 0) return 0;
+            double total = 0;
+            foreach (var kv in pool.Where(x => x.Value > 0)) total += kv.Value * DrawWorth(kv.Key);
+            return total / n;
+        }
+
+        /// <summary>A drawn card: an interruption we can hold for the opponent's turn (hand trap, settable trap), or its next-turn follow-up.</summary>
+        private double DrawWorth(int id)
+        {
+            double v;
+            if (_drawWorth.TryGetValue(id, out v)) return v;
+            CardEntry c = _db.Get(id);
+            v = 0;
+            if (c != null && !_w.Excluded.Contains(id))
+            {
+                bool trap = (c.Data.Type & 0x4) != 0, quickPlay = (c.Data.Type & 0x10000) != 0;
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0) continue;
+                    if ((trap || quickPlay) && e.Kind.StartsWith("카드의 발동")) v = Math.Max(v, _int.Value(c, e, false));
+                    else if (e.Range != null && e.Range.Contains("HAND")) v = Math.Max(v, _int.Value(c, e, true));
+                }
+                v = Math.Max(v, ValueModel.FollowOf(_w, NextTurn(id), 1));
+            }
+            _drawWorth[id] = v;
             return v;
         }
 
