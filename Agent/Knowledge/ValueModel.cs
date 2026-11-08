@@ -45,6 +45,9 @@ namespace WindBot.Agent.Knowledge
             { "int.control", 45 },       // take control: removes their card and adds a body to our field
             { "int.reactive_factor", 0.67 }, // destroy / banish usable only when the opponent activates: that effect still resolves (30 → 20)
             { "int.expected_targets", 2 },   // opponent face-up cards assumed for "up to N" removal when their field is not yet known
+            { "int.scope.all", 1.0 },        // negation target (read from Lua): monster and spell/trap effects
+            { "int.scope.monster", 0.95 },   // monster effects only: most of what an opponent's turn runs on
+            { "int.scope.spelltrap", 0.75 }, // spell / trap effects only
             { "int.negate_effect", 40 },
             { "int.negate_activation", 38 },
             { "int.negate_effect_destroy", 48 },
@@ -82,12 +85,12 @@ namespace WindBot.Agent.Knowledge
             { "is.31548215:1", 0.8 },                         // Gravedigger's Trap Hole
             { "ib.65681983:1", 40 }, { "is.65681983:1", 0.8 }, // Crossout Designator: negate by name
             { "imc.33787730:1", 1 },                          // Plasma Hole: up to the number of Ryzeal Xyz
-            { "ib.6798031:4", 40 }, { "is.6798031:4", 0.8 }, { "ia.6798031:4", 5 }, // Ryzeal Cross ③: does not activate
+            { "ib.6798031:4", 40 }, { "is.6798031:4", 1.0 }, { "ia.6798031:4", 5 }, // Ryzeal Cross ③: does not activate (monster-only scope comes from Lua)
             { "ib.6511113:5", 55 }, { "is.6511113:5", 1.0 }, { "ia.6511113:5", 10 }, // Rafflesia ③: copies a Hole trap (negate); hard to remove
             { "is.9940036:3", 0.8 },                          // Aggregator ③
             { "ib.93039339:1", 35 }, { "is.93039339:1", 0.5 }, // TY-PHON ①: lock
             { "is.6983839:1", 0.5 },                          // Tornado Dragon: S/T only
-            { "ib.2061963:1", 38 }, { "is.2061963:1", 0.8 }, { "ibt.2061963:1", 1 }, // Number 104
+            { "ib.2061963:1", 38 }, { "is.2061963:1", 1.0 }, { "ibt.2061963:1", 1 }, // Number 104 (monster-only scope comes from Lua)
             { "ib.46772449:1", 50 }, { "is.46772449:1", 0.5 }, { "ibt.46772449:1", 1 }, // Exciton Knight
             { "ib.1269512:2", 40 }, { "is.1269512:2", 0.5 }, { "ibt.1269512:2", 1 },   // FA Ray Lancer ②
         };
@@ -226,11 +229,13 @@ namespace WindBot.Agent.Knowledge
     {
         private readonly GameCardDb _db;
         private readonly ValueWeights _w;
+        private readonly InterruptModel _int;
 
         public ValueModel(GameCardDb db, ValueWeights weights)
         {
             _db = db;
             _w = weights;
+            _int = new InterruptModel(weights);
         }
 
         public ValueWeights Weights { get { return _w; } }
@@ -340,13 +345,15 @@ namespace WindBot.Agent.Knowledge
             if (step >= _w.MaxSteps || --ctx.Budget < 0) return best;
             if (_w.Excluded.Contains(card.Data.Id)) return best;
 
-            // Spells in hand: their activation effects. (Traps must be set first, so they bring nothing this turn.)
+            // Spells in hand: their activation effects, plus what a field / continuous spell then holds for the opponent's turn
+            // (e.g. Ryzeal Cross ③ negation). Traps in hand stay 0 here: the turn planner counts them as set / hand interruptions.
             if ((card.Data.Type & 0x2) != 0)
             {
                 foreach (EffectEntry e in card.Effects)
                 {
                     if (!e.Kind.StartsWith("카드의 발동") || ctx.UsedKeys.Contains(e.UsageKey)) continue;
                     ChainResult r = FromEffect(card, e, ctx.Clone(), step);
+                    AddHeldInterrupts(r, card, step);
                     if (r.Value > best.Value) best = r;
                 }
                 return best;
@@ -424,7 +431,7 @@ namespace WindBot.Agent.Knowledge
                     Take(t, l, c);
                     ChainResult next;
                     if (arrival == "HAND") next = FromHand(target, c, step + 1, e.BlocksNormalSummonOfAdded);
-                    else if (arrival == "SET") next = new ChainResult(); // set spells/traps: no chain continuation modelled yet
+                    else if (arrival == "SET") next = Placed(target, step + 1); // set: the interruption it holds (a set field spell is activated on our turn)
                     else next = Arrive(target, arrival, c, step + 1);
                     if (next.Value > bestNext.Value) bestNext = next;
                 }
@@ -434,6 +441,45 @@ namespace WindBot.Agent.Knowledge
             result.Steps.AddRange(bestNext.Steps);
             result.Value = own * discount + bestNext.Value;
             return result;
+        }
+
+        /// <summary>
+        /// Interruptions a spell / trap holds once it is on the field, for the opponent's turn: a set trap or quick-play's
+        /// activation, a field / continuous spell's effects in its zone. Field conditions (e.g. Cross ③ needs a Ryzeal Xyz
+        /// with material) are left to the turn planner.
+        /// </summary>
+        public double HeldInterrupt(CardEntry c)
+        {
+            bool trap = (c.Data.Type & 0x4) != 0, quickPlay = (c.Data.Type & 0x10000) != 0;
+            bool stays = (c.Data.Type & (0x80000 | 0x20000)) != 0; // field, continuous
+            double v = 0;
+            foreach (EffectEntry e in c.Effects)
+            {
+                if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0) continue;
+                bool act = e.Kind.StartsWith("카드의 발동");
+                bool inZone = e.Range != null && (e.Range.Contains("FZONE") || e.Range.Contains("SZONE"));
+                if ((trap || quickPlay) && act) v += _int.Value(c, e, false);
+                else if (stays && inZone) v += _int.Value(c, e, false);
+            }
+            return v;
+        }
+
+        private void AddHeldInterrupts(ChainResult r, CardEntry card, int step)
+        {
+            double held = HeldInterrupt(card);
+            if (held <= 0) return;
+            double d = held * Math.Pow(_w.Gamma, step);
+            r.Steps.Add(new ChainStep { Card = card.Data.Name, EffectIndex = 0, Function = "상대 턴 방해", Base = held, Discounted = d });
+            r.Value += d;
+        }
+
+        /// <summary>A spell / trap put on the field (set from the deck, or a trap in hand to be set): its held interruptions.</summary>
+        private ChainResult Placed(CardEntry card, int step)
+        {
+            ChainResult r = new ChainResult();
+            if (card == null || step >= _w.MaxSteps || _w.Excluded.Contains(card.Data.Id)) return r;
+            AddHeldInterrupts(r, card, step);
+            return r;
         }
 
         /// <summary>Base value of the effect itself (sum over what it does) minus costs.</summary>

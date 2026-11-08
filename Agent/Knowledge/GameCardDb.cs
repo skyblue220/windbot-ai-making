@@ -107,6 +107,8 @@ namespace WindBot.Agent.Knowledge
         public string Confidence = "inferred";
         /// <summary>Battle-destruction protection this effect gives (null if none).</summary>
         public BattleGuard Guard;
+        /// <summary>What a negation effect can negate, read from Lua: "monster", "spelltrap" or "all"; null when the effect does not negate.</summary>
+        public string NegateScope;
     }
 
     public sealed class CardEntry
@@ -304,6 +306,42 @@ namespace WindBot.Agent.Knowledge
             return names;
         }
 
+        /// <summary>A function body plus the bodies of every s.* function it calls (one level, filters included).</summary>
+        private static string DeepText(LuaScript s, string fn)
+        {
+            if (fn == null) return "";
+            if (fn.StartsWith("(inline)")) return fn;
+            string body = s.Body(fn);
+            if (body == null) return "";
+            StringBuilder sb = new StringBuilder(body);
+            foreach (Match m in Regex.Matches(body, @"s\.(\w+)"))
+            {
+                string inner = s.Body(m.Groups[1].Value);
+                if (inner != null && m.Groups[1].Value != fn) sb.AppendLine(inner);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Negation scope from the condition / target: monster effects only (re:IsMonsterEffect(), IsNegatableMonster, ...),
+        /// spell / trap effects only (re:IsSpellTrapEffect(), ...), or all. Null when the effect does not negate
+        /// (no NEGATE / DISABLE category and no Negate call in its operation).
+        /// </summary>
+        private static string ReadNegateScope(EffectEntry e, EffectDef def, LuaScript s)
+        {
+            string op = DeepText(s, def.Operation);
+            bool negates = e.Categories.Contains("NEGATE") || e.Categories.Contains("DISABLE")
+                        || op.Contains("NegateEffect(") || op.Contains("NegateActivation(") || op.Contains("NegateRelatedChain(");
+            if (!negates) return null;
+            string t = DeepText(s, def.Condition) + " " + DeepText(s, def.Target);
+            bool monster = t.Contains("IsMonsterEffect()") || t.Contains("IsActiveType(TYPE_MONSTER)") || t.Contains("IsNegatableMonster");
+            bool spellTrap = t.Contains("IsSpellTrapEffect()") || t.Contains("IsSpellEffect()") || t.Contains("IsTrapEffect()")
+                          || t.Contains("IsActiveType(TYPE_SPELL+TYPE_TRAP)") || t.Contains("IsActiveType(TYPE_SPELL|TYPE_TRAP)");
+            if (monster && !spellTrap) return "monster";
+            if (spellTrap && !monster) return "spelltrap";
+            return "all";
+        }
+
         private void BuildEffects(CardEntry c, LuaScript s)
         {
             int index = 0;
@@ -343,6 +381,7 @@ namespace WindBot.Agent.Knowledge
                 }
 
                 e.Guard = ReadBattleGuard(def, s, cond);
+                e.NegateScope = ReadNegateScope(e, def, s);
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
                     if (f != null && f.StartsWith("(inline)")) e.Unresolved.Add("inline function: " + f.Substring(9));
@@ -985,6 +1024,7 @@ namespace WindBot.Agent.Knowledge
                     if (e.Categories.Count > 0) sb.AppendLine("  - 분류: " + String.Join(", ", e.Categories.ToArray()));
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " ('발동' 제약: 발동 무효되면 다시 발동 가능)" : " ('사용' 제약: 발동 무효돼도 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
+                    if (e.NegateScope != null) sb.AppendLine("  - 무효 대상: " + (e.NegateScope == "monster" ? "몬스터 효과" : e.NegateScope == "spelltrap" ? "마법·함정 효과" : "전부"));
                     if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
                     if (e.Guard != null) sb.AppendLine("  - 전투: " + e.Guard.Describe());
                     foreach (CardLink l in e.Links)

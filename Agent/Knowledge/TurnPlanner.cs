@@ -97,12 +97,19 @@ namespace WindBot.Agent.Knowledge
         public double Value(CardEntry c, EffectEntry e, bool inHand)
         {
             double v = TypeValue(c, e), x;
+            v *= ScopeFactor(e);
             if (_w.TryCardInt("is", c.Data.Id, e.Index, out x)) v *= x;
             if (Reactive(c, e)) v *= _w.BaseOf("int.reactive_factor");
             if (_w.TryCardInt("ibt", c.Data.Id, e.Index, out x) && x != 0) v *= _w.BaseOf("int.battle_factor");
             if (_w.TryCardInt("ia", c.Data.Id, e.Index, out x)) v += x;
             if (inHand) v += _w.BaseOf("int.handtrap_bonus");
             return v;
+        }
+
+        /// <summary>What a negation can hit (from Lua): all ×int.scope.all, monster effects ×int.scope.monster, spell/trap effects ×int.scope.spelltrap. 1 for non-negations.</summary>
+        public double ScopeFactor(EffectEntry e)
+        {
+            return e.NegateScope == null ? 1 : _w.BaseOf("int.scope." + e.NegateScope);
         }
 
         /// <summary>
