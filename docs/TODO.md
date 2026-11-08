@@ -141,6 +141,7 @@
 - [x] **AI 대 AI 2판 선공 버그 2건** (2026-11-07): ① Rafflesia 복사 효과의 소재 1개 코스트를 못 읽어서(`c:CheckRemoveOverlayCard(tp,1,…)`, delta는 `Cost.DetachFromSelf(1)`) 소재 0개 Rafflesia를 방해로 셌고, Duo Drive ③이 Rafflesia 소재를 공짜로 보고 뗐다. 카드 메서드형·`Cost.DetachFromSelf`도 읽게 했다. ② Ice 룰 소환 코스트에서 계획은 패의 Cross를 냈는데 실제 선택은 다음 엑시즈 소재인 필드의 Sword를 보내 Detonator를 못 만들었다. 계획이 낸 코스트 카드를 기록하고(`[코스트: …]`) 실제 코스트 선택이 따르게 했다.
 - [x] **무효 대상과 Cross 발동 가치** (2026-11-08): 무효 효과에 무효 대상(전부 ×1.0 / 몬스터 ×0.95 / 마법·함정 ×0.75)을 Lua에서 읽어 곱한다. 필드·지속 마법을 발동하거나 덱에서 세트하는 연쇄에 그 카드가 상대 턴에 가지는 방해를 더한다(Cross: 0 → 43). VALUE_MODEL.md 7.3·7.4.
 - [x] **Ryzeal Cross ② (묘지 2장 → 덱, 1장 드로우)** (2026-11-08): 앞면 마법의 존 기동 효과를 턴 계획 행동으로 넣었다. 되돌릴 카드는 다음 턴 서치를 살리는 카드부터, 드로우는 덱 기댓값으로. 패의 Cross 가치에도 이어진다. 오프라인 덤프에 `AgentDbGrave` / `AgentDbSpells` 인자 추가. VALUE_MODEL.md 7.4.
+- [x] **Aggregator ③로 자기 카드 무효** (2026-11-09): 상대 앞면 카드가 없으면 Aggregator의 묘지 가치를 0으로 두어 다른 Xyz를 코스트로 보내고(Cross가 있으면 이미 필드에 있는 같은 이름 Ryzeal Xyz 사본, 아니면 Evilswarm 등 쓸모 낮은 카드), 그래도 묘지로 갔으면 ③을 발동하지 않는다. 무효 대상 힌트(573/575)도 상대 카드 우선. 실전 확인 필요. VALUE_MODEL.md 코스트 항목.
 - [ ] **실제 듀얼로 위 수정 확인**: 끝난 필드가 Duo Drive + Detonator + Rafflesia인지, 소재 제거가 Duo Drive부터인지("소재 위치:" 표시), Ext 코스트로 Twins/Aggregator를 보내는지, 같은 Ext를 다시 가져오지 않는지.
 - [ ] **로그·상태 기록의 효과 번호를 카드 텍스트 ①②③에 맞추기.** 지금은 Lua 등록 순서라 텍스트와 다르다(Detonator: DB 효과 1 = 텍스트 ②).
 - [ ] 오프라인 덤프에서 Star Ryzeal 이름이 `#84433129`로 나온다(cards.cdb만 읽음). 실제 게임에서는 정상.

@@ -316,7 +316,19 @@ namespace WindBot.Agent
             502 /* Destroy */, 503 /* Remove */, 504 /* ToGrave */, 505 /* RtoHand */, 507 /* ToDeck */
         };
 
+        /// <summary>Negate / disable picks: an opponent's card is the point; our own only when forced, least worth first.</summary>
+        private static readonly HashSet<long> NegateHints = new HashSet<long> { 573 /* Disable */, 575 /* Negate */ };
+
         private const double OpponentTargetBase = 50;
+
+        /// <summary>Face-up cards on the opponent's field (monster and spell/trap zones, field zone included).</summary>
+        private int OpponentFaceUp()
+        {
+            int n = 0;
+            foreach (ClientCard c in _duel.Fields[1].MonsterZone) if (c != null && c.IsFaceup()) n++;
+            foreach (ClientCard c in _duel.Fields[1].SpellZone) if (c != null && c.IsFaceup()) n++;
+            return n;
+        }
 
         /// <summary>
         /// Estimates the value policy decides by, for requests other than the planned main-phase actions:
@@ -360,10 +372,17 @@ namespace WindBot.Agent
                     }
 
                 case RequestKind.EffectYn:
-                    // Our own optional triggers: the plan assumes we use them.
-                    r.Options[0].Estimate = 1;
-                    r.Options[1].Estimate = 0;
-                    break;
+                    {
+                        // Our own optional triggers: the plan assumes we use them,
+                        // except an effect that hits a card on the field while the opponent has none face-up (it would hit ours).
+                        CardEntry yc = r.SourceCardId != 0 ? _db.Get(r.SourceCardId) : null;
+                        EffectEntry ye = yc != null ? _db.FindEffect(yc, r.Description) : null;
+                        bool idle = yc != null && ye != null && _planner.HitsFieldCards(yc, ye) && OpponentFaceUp() == 0;
+                        r.Options[0].Estimate = idle ? 0 : 1;
+                        r.Options[1].Estimate = idle ? 1 : 0;
+                        if (idle) { r.NoExplore = true; r.Options[0].Info = (r.Options[0].Info ?? "") + " | 상대 앞면 카드 없음: 자기 카드만 대상"; }
+                        break;
+                    }
 
                 case RequestKind.Chain:
                     {
@@ -386,7 +405,17 @@ namespace WindBot.Agent
                             CardEntry c = _db.Get(o.CardId);
                             EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
                             if (c == null || e == null) continue;
-                            if (e.Kind.StartsWith("유발 효과")) o.Estimate = 2; // own trigger offered in a chain window
+                            if (e.Kind.StartsWith("유발 효과"))
+                            {
+                                // Own trigger offered in a chain window; one that hits a field card has nothing to hit but ours
+                                // while the opponent shows no face-up card (Mereologic Aggregator ③ negating our own Ryzeal).
+                                if (_planner.HitsFieldCards(c, e) && OpponentFaceUp() == 0)
+                                {
+                                    o.Estimate = 0;
+                                    o.Info = (o.Info ?? "") + " | 상대 앞면 카드 없음: 자기 카드만 대상";
+                                }
+                                else o.Estimate = 2;
+                            }
                             else if (opponentActed && _planner.Interrupts.IsInterrupt(c, e))
                                 o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
                         }
@@ -411,9 +440,10 @@ namespace WindBot.Agent
                         }
                         r.PreferLow = GiveUpHints.Contains(r.Hint);
                         ZoneSnapshot z = _zones.Snapshot();
-                        bool removal = RemovalHints.Contains(r.Hint);
+                        bool negate = NegateHints.Contains(r.Hint);
+                        bool removal = RemovalHints.Contains(r.Hint) || negate;
                         bool anyOpponent = r.Options.Any(o => o.Controller == 1);
-                        if (removal && anyOpponent) r.PreferLow = true; // destroy / banish / bounce: the opponent's cards first
+                        if ((removal && anyOpponent) || negate) r.PreferLow = true; // destroy / banish / bounce / negate: the opponent's cards first
                         foreach (DecisionOption o in r.Options)
                         {
                             if (o.Controller == 0 && o.CardId != 0)
@@ -431,7 +461,7 @@ namespace WindBot.Agent
                                     }
                                 }
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
-                                    o.Estimate = _planner.FodderCost(o.CardId); // same order the plan used (e.g. Ext Ryzeal ① sends Eclipse Twins)
+                                    o.Estimate = _planner.FodderCost(z, o.CardId); // same order the plan used (e.g. Ext Ryzeal ① sends Eclipse Twins)
                                 else if (o.Location == (int)CardLocation.Grave && r.Hint == 507 /* ToDeck */)
                                     o.Estimate = -_planner.ReturnPriority(z, o.CardId); // GY → deck (Cross ②): cards that refuel a search next turn first
                             }
@@ -445,7 +475,7 @@ namespace WindBot.Agent
                         }
                         if (anyOpponent) r.NoExplore = true;
                         if (!r.PreferLow) FollowPlan(r);
-                        else if (!anyOpponent) FollowPlanCost(r);
+                        else if (!anyOpponent && !negate) FollowPlanCost(r);
                         break;
                     }
             }

@@ -128,6 +128,8 @@ namespace WindBot.Agent.Knowledge
         /// <summary>A trap that can be activated from the hand (Infinite Impermanence), and whether that needs our field empty.</summary>
         public bool TrapActInHand;
         public bool TrapActInHandNeedsEmptyField;
+        /// <summary>While face-up, we cannot Xyz summon a monster with the same name as a card we control (Ryzeal Cross ①).</summary>
+        public bool NoSameNameXyz;
         public readonly List<EffectEntry> Effects = new List<EffectEntry>();
         public CardLink Material;
         /// <summary>Incoming links: (card id, effect index or 0 for material, relation).</summary>
@@ -382,6 +384,11 @@ namespace WindBot.Agent.Knowledge
                     c.TrapActInHandNeedsEmptyField = cond.Contains("LOCATION_ONFIELD,0)==0");
                 }
 
+                if (def.CodeExpr != null && def.CodeExpr.Contains("EFFECT_CANNOT_SPECIAL_SUMMON"))
+                {
+                    string limit = DeepText(s, def.Target);
+                    if (limit.Contains("SUMMON_TYPE_XYZ") && limit.Contains("GetCode()")) c.NoSameNameXyz = true;
+                }
                 e.Guard = ReadBattleGuard(def, s, cond);
                 e.NegateScope = ReadNegateScope(e, def, s);
                 AddLinks(e, s, def);
@@ -1014,6 +1021,7 @@ namespace WindBot.Agent.Knowledge
                 CardData d = c.Data;
                 sb.AppendLine("## " + d.Name + " (" + d.Id + ")" + (c.Opponent ? " — 상대 카드" + (c.OpponentCopies > 0 ? " ×" + c.OpponentCopies : "") : c.CopiesInDeck > 0 ? " ×" + c.CopiesInDeck + (c.InExtraDeck ? " [엑스트라]" : "") + (c.OpponentCopies > 0 ? " (상대 덱 ×" + c.OpponentCopies + ")" : "") : ""));
                 sb.AppendLine(Stats(d));
+                if (c.NoSameNameXyz) sb.AppendLine("- 앞면인 동안: 같은 이름 엑시즈 몬스터 특수 소환 불가");
                 if (!c.ScriptFound) sb.AppendLine("- 스크립트 없음" + (c.Notes.Count > 0 ? " (" + String.Join(", ", c.Notes.ToArray()) + ")" : ""));
                 if (c.Material != null)
                     sb.AppendLine("- 소환 조건: " + c.Material.Relation + FilterText(c.Material.Filter) + " → 이 덱에서: " + NamesOf(c.Material.Targets));

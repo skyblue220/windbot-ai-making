@@ -327,10 +327,13 @@ namespace WindBot.Agent.Knowledge
 
         /// <summary>Most cards an "up to N" removal can hit: the opponent's face-up cards, at least int.expected_targets.</summary>
         private int _targetCap = 2;
+        /// <summary>Opponent's face-up cards right now (-1: unknown, e.g. offline tests).</summary>
+        private int _oppFaceUp = -1;
 
         private St FromSnapshot(ZoneSnapshot z, GameCardDb db)
         {
             _targetCap = Math.Max(z.OpponentFaceUp, (int)_w.BaseOf("int.expected_targets"));
+            _oppFaceUp = z.OpponentFaceUp;
             St s = new St { NS = z.NormalSummonAvailable };
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
             foreach (var m in z.Monsters) s.Mons.Add(new Mon { Id = m.Key, Mats = m.Value });
@@ -788,17 +791,33 @@ namespace WindBot.Agent.Knowledge
         {
             HashSet<int> allowed = l != null && l.Targets.Count > 0 ? new HashSet<int>(l.Targets) : null;
             return s.Extra.Where(kv => kv.Value > 0 && (allowed == null || allowed.Contains(kv.Key)))
-                          .OrderBy(kv => FodderCost(kv.Key))
+                          .OrderBy(kv => FodderCost(s, kv.Key))
                           .Select(kv => kv.Key).FirstOrDefault();
         }
 
         /// <summary>
         /// Order for sending an Extra Deck card to the GY (lower first): cards whose "sent to the GY" effect
-        /// pays off later (attached, then detached on the opponent's turn), then excluded cards, then the least useful.
+        /// pays off (attached and detached later, or a negation with an opponent's face-up card to hit), then excluded cards,
+        /// then the least useful to keep (a copy that cannot be summoned now, a card worth little on our field).
         /// </summary>
-        public double FodderCost(int id)
+        public double FodderCost(ZoneSnapshot z, int id)
         {
-            return -GraveBonus(id) * 100 + (_w.Excluded.Contains(id) ? -1 : 0) + ExtraUsefulness(id) * 0.01;
+            return FodderCost(FromSnapshot(z, _db), id);
+        }
+
+        private double FodderCost(St s, int id)
+        {
+            return -GraveBonus(id) * 100 + (_w.Excluded.Contains(id) ? -1 : 0) + ExtraUsefulness(s, id) * 0.01;
+        }
+
+        /// <summary>
+        /// A face-up card of ours forbids Xyz summoning a monster with the same name as a card we control (Ryzeal Cross ①)
+        /// and that monster is already on our field: its Extra Deck copies cannot come out.
+        /// </summary>
+        private bool SameNameBlocked(St s, int id)
+        {
+            if (!IsXyz(id) || !s.Mons.Any(m => m.Id == id)) return false;
+            return s.Spells.Any(x => { CardEntry c = _db.Get(x); return c != null && c.NoSameNameXyz; });
         }
 
         /// <summary>Worth of having this card in the GY: grave_fodder × its best "sent to the GY" trigger (interruption or function value).</summary>
@@ -811,6 +830,8 @@ namespace WindBot.Agent.Knowledge
             {
                 if (!e.Kind.StartsWith("유발 효과") || !e.Events.Any(ev => ev.Contains("TO_GRAVE"))) continue;
                 double v = _int.IsInterrupt(c, e) ? _int.Value(c, e, false) : 0;
+                // A negation / removal fired on our own turn needs an opponent's face-up card: with none, it could only hit ours.
+                if (_oppFaceUp == 0 && HitsFieldCards(c, e)) v = 0;
                 foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
                 {
                     string f = ValueModel.FunctionOf(l);
@@ -838,11 +859,25 @@ namespace WindBot.Agent.Knowledge
             return v;
         }
 
-        private double ExtraUsefulness(int id)
+        /// <summary>Negation or removal of a card on the field (e.g. Mereologic Aggregator ③): needs a target on the opponent's field.</summary>
+        public bool HitsFieldCards(CardEntry c, EffectEntry e)
+        {
+            string t = _int.TypeName(c, e);
+            return e.NegateScope != null || t == "단순 파괴" || t == "단순 제외" || t == "패로 바운스" || t == "덱으로 바운스" || t == "컨트롤 탈취"
+                || t == "효과 무효" || t == "발동 무효" || t == "효과 무효 후 파괴" || t == "발동 무효 후 파괴";
+        }
+
+        /// <summary>
+        /// Worth of keeping an Extra Deck card: 0 if it cannot be summoned now (same-name lock), otherwise what it would do on
+        /// our field (unused functions + interruptions). Breakthrough cards with little to hold on the opponent's turn
+        /// (Evilswarm, Tornado Dragon) come out low; Detonator, Duo Drive, Rafflesia high.
+        /// </summary>
+        private double ExtraUsefulness(St s, int id)
         {
             CardEntry c = _db.Get(id);
-            if (c == null || c.Material == null) return 0;
-            return c.Material.Targets.Count; // summonable with this deck = more useful to keep
+            if (c == null) return 0;
+            if (SameNameBlocked(s, id)) return 0;
+            return 1 + StaticValue(s, c);
         }
 
         /// <summary>Rough worth of a card in hand for choosing what to discard: its unused functions plus its hand-trap value.</summary>

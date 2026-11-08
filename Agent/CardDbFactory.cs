@@ -118,7 +118,7 @@ namespace WindBot.Agent
                     if (int.TryParse(s.Trim(), out id)) zones.Add("HAND", id);
                 }
                 // Optional GY and face-up spells for the test, e.g. AgentDbGrave=35844557,34022970 AgentDbSpells=6798031
-                foreach (var extra in new[] { new KeyValuePair<string, string>("GRAVE", "AgentDbGrave"), new KeyValuePair<string, string>("SZONE", "AgentDbSpells") })
+                foreach (var extra in new[] { new KeyValuePair<string, string>("GRAVE", "AgentDbGrave"), new KeyValuePair<string, string>("SZONE", "AgentDbSpells"), new KeyValuePair<string, string>("MZONE", "AgentDbMonsters") })
                 {
                     string list = Config.GetString(extra.Value);
                     if (list == null) continue;
@@ -128,6 +128,7 @@ namespace WindBot.Agent
                         if (int.TryParse(s.Trim(), out id)) zones.Add(extra.Key, id);
                     }
                 }
+                zones.OpponentFaceUp = Config.GetInt("AgentDbOppFaceUp", -1); // -1: unknown
                 sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 묘지: " + (Config.GetString("AgentDbGrave") ?? "없음") + ", 앞면 마법: " + (Config.GetString("AgentDbSpells") ?? "없음") + ", 일반 소환 가능)");
                 sb.AppendLine();
                 sb.Append(DescribeValues(db, model, zones));
@@ -156,6 +157,10 @@ namespace WindBot.Agent
                 ZoneSnapshot snap = zones.Snapshot();
                 foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent))
                     sb.AppendLine("- " + c.Data.Name + ": " + planner.Worth(snap, c.Data.Id).ToString("0.#"));
+                sb.AppendLine();
+                sb.AppendLine("## 엑스트라 덱 코스트 순서 (낮을수록 먼저 묘지로, 상대 앞면 " + snap.OpponentFaceUp + "장)");
+                foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent && x.InExtraDeck).OrderBy(x => planner.FodderCost(snap, x.Data.Id)))
+                    sb.AppendLine("- " + c.Data.Name + ": " + planner.FodderCost(snap, c.Data.Id).ToString("0.##"));
                 sb.AppendLine();
             }
             if (Config.GetBool("AgentDbInterrupts", hand != null))
@@ -240,13 +245,14 @@ namespace WindBot.Agent
         private readonly Dictionary<string, Dictionary<int, int>> _zones = new Dictionary<string, Dictionary<int, int>>();
         public bool NormalSummonAvailable { get; set; }
 
-        public StaticZoneView() { NormalSummonAvailable = true; }
+        public StaticZoneView() { NormalSummonAvailable = true; OpponentFaceUp = -1; }
         public int Materials { get; set; }
         public int FieldMaterials() { return Materials; }
+        public int OpponentFaceUp { get; set; }
 
         public ZoneSnapshot Snapshot()
         {
-            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable };
+            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable, OpponentFaceUp = OpponentFaceUp };
             Fill(z.Hand, "HAND");
             List<int> mons = new List<int>();
             Fill(mons, "MZONE");
