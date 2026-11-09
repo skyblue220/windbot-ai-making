@@ -252,7 +252,7 @@ namespace WindBot.Agent
             _optionPlans.Clear();
             if (r.Kind == RequestKind.Idle && _planner != null && _duel.Player == 0)
             {
-                try { _planner.Plan(_zones.Snapshot(), out byFirst, out stop); }
+                try { _planner.Plan(PlanSnapshot(), out byFirst, out stop); }
                 catch (Exception ex) { _log.Error("planner", ex.ToString()); byFirst = null; }
             }
 
@@ -959,6 +959,36 @@ namespace WindBot.Agent
             int chosen = AskOne(r);
             _attacker = chosen >= 0 && r.Options[chosen].Action == "Attack" ? battle.AttackableCards.FirstOrDefault(c => c.Id == r.Options[chosen].CardId && c.Sequence == r.Options[chosen].Sequence) : null;
             return chosen < 0 ? new BattlePhaseAction(BattlePhaseAction.BattleAction.ToEndPhase) : actions[chosen];
+        }
+
+        /// <summary>
+        /// Our zones plus what the planner's battle term needs: whether our Battle Phase is still ahead, LP, and the
+        /// opponent's monsters with their stats, held interruptions and battle protection (same reading as the battle math).
+        /// </summary>
+        private ZoneSnapshot PlanSnapshot()
+        {
+            ZoneSnapshot z = _zones.Snapshot();
+            ClientField opp = _duel.Fields[1];
+            if (opp == null || _duel.Fields[0] == null) return z;
+            z.CanAttack = _duel.Turn > 1 && _duel.Player == 0 && _duel.Phase == DuelPhase.Main1;
+            z.OwnLp = _duel.Fields[0].LifePoints;
+            z.OpponentLp = opp.LifePoints;
+            foreach (ClientCard c in opp.MonsterZone)
+            {
+                if (c == null) continue;
+                OpponentMonster m = new OpponentMonster { Id = c.Id, Atk = c.Attack, Def = c.Defense, AttackPosition = c.IsAttack(), FaceUp = c.IsFaceup() };
+                if (c.IsFaceup() && c.Id != 0)
+                {
+                    m.Held = HeldInterrupts(c);
+                    KeyValuePair<GuardState, double> g = GuardOf(c);
+                    m.Indestructible = g.Key == GuardState.Indestructible;
+                    if (g.Key == GuardState.Replace) m.ReplaceCost = g.Value;
+                }
+                z.OpponentMonsters.Add(m);
+            }
+            foreach (ClientCard c in opp.Graveyard)
+                if (c != null && c.HasType(CardType.Xyz)) z.OpponentGraveXyzRanks += c.Rank;
+            return z;
         }
 
         /// <summary>Battle math inputs: LP, monster worth (interruptions held on the field) and battle protection from Lua.</summary>

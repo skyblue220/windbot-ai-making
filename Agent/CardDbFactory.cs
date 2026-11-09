@@ -124,11 +124,36 @@ namespace WindBot.Agent
                     if (list == null) continue;
                     foreach (string s in list.Split(','))
                     {
-                        int id;
-                        if (int.TryParse(s.Trim(), out id)) zones.Add(extra.Key, id);
+                        // Monsters may carry their materials: AgentDbMonsters=7511613:2,34909328:1
+                        string[] parts = s.Trim().Split(':');
+                        int id, mats;
+                        if (!int.TryParse(parts[0], out id)) continue;
+                        if (extra.Key == "MZONE" && parts.Length > 1 && int.TryParse(parts[1], out mats)) zones.AddMonster(id, mats);
+                        else zones.Add(extra.Key, id);
                     }
                 }
                 zones.OpponentFaceUp = Config.GetInt("AgentDbOppFaceUp", -1); // -1: unknown
+                // Breakthrough test: the opponent's monsters, e.g. AgentDbOppMonsters=34909328:a,9940036:d (a = attack, d = defense position)
+                string oppMons = Config.GetString("AgentDbOppMonsters");
+                if (oppMons != null)
+                {
+                    InterruptModel im = new InterruptModel(model.Weights);
+                    foreach (string s in oppMons.Split(','))
+                    {
+                        string[] parts = s.Trim().Split(':');
+                        int id;
+                        if (!int.TryParse(parts[0], out id)) continue;
+                        CardEntry oc = db.EnsureCard(id, true);
+                        if (oc == null) continue;
+                        OpponentMonster m = new OpponentMonster { Id = id, Atk = oc.Data.Atk, Def = oc.Data.Def, FaceUp = true, AttackPosition = parts.Length < 2 || parts[1] != "d" };
+                        foreach (EffectEntry e in oc.Effects)
+                            if (e.Range != null && e.Range.Contains("MZONE") && im.IsInterrupt(oc, e)) m.Held += im.Value(oc, e, false);
+                        zones.OpponentMonsters.Add(m);
+                    }
+                    if (zones.OpponentFaceUp < 0) zones.OpponentFaceUp = zones.OpponentMonsters.Count;
+                }
+                zones.CanAttack = Config.GetBool("AgentDbCanAttack", oppMons != null);
+                zones.OpponentLp = Config.GetInt("AgentDbOppLp", 8000);
                 sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 묘지: " + (Config.GetString("AgentDbGrave") ?? "없음") + ", 앞면 마법: " + (Config.GetString("AgentDbSpells") ?? "없음") + ", 일반 소환 가능)");
                 sb.AppendLine();
                 sb.Append(DescribeValues(db, model, zones));
@@ -308,13 +333,27 @@ namespace WindBot.Agent
         public int Materials { get; set; }
         public int FieldMaterials() { return Materials; }
         public int OpponentFaceUp { get; set; }
+        public bool CanAttack { get; set; }
+        public int OpponentLp { get; set; }
+        public readonly List<OpponentMonster> OpponentMonsters = new List<OpponentMonster>();
+        private readonly List<KeyValuePair<int, int>> _monsWithMats = new List<KeyValuePair<int, int>>();
+
+        /// <summary>A monster with its own material count (also counted in the MZONE zone).</summary>
+        public void AddMonster(int id, int mats)
+        {
+            _monsWithMats.Add(new KeyValuePair<int, int>(id, mats));
+            Add("MZONE", id);
+        }
 
         public ZoneSnapshot Snapshot()
         {
-            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable, OpponentFaceUp = OpponentFaceUp };
+            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable, OpponentFaceUp = OpponentFaceUp, CanAttack = CanAttack, OpponentLp = OpponentLp > 0 ? OpponentLp : 8000 };
+            z.OpponentMonsters.AddRange(OpponentMonsters);
             Fill(z.Hand, "HAND");
             List<int> mons = new List<int>();
             Fill(mons, "MZONE");
+            foreach (var kv in _monsWithMats) mons.Remove(kv.Key);
+            z.Monsters.AddRange(_monsWithMats);
             int mats = Materials;
             foreach (int id in mons) { z.Monsters.Add(new KeyValuePair<int, int>(id, mats)); mats = 0; }
             Fill(z.Spells, "SZONE");

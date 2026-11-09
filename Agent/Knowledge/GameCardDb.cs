@@ -151,6 +151,38 @@ namespace WindBot.Agent.Knowledge
         public bool Open { get { return EffectType == "any" && !NoCardActivation && From.Count == 0 && Categories.Count == 0 && !DeclaredName && SummonCount == 0; } }
     }
 
+    /// <summary>
+    /// Xyz summon on top of one Xyz monster we control (Xyz.AddProcedure alterf, e.g. Full Armored Utopic Ray Lancer on a
+    /// Rank 4 or lower Xyz): the monster and its materials become the new monster's materials.
+    /// </summary>
+    public sealed class OverlayProc
+    {
+        public int RankMax = 99;
+        public int RankExact = -1;
+        /// <summary>Hand cards the summon discards (one), or null when it discards nothing.</summary>
+        public FilterInfo DiscardFilter;
+        public readonly List<int> DiscardTargets = new List<int>();
+        /// <summary>Once per turn (the op sets a flag with the card's id).</summary>
+        public bool OncePerTurn;
+        public string Text;
+    }
+
+    /// <summary>Battle-relevant numbers read from the Lua (used by the planner's breakthrough term).</summary>
+    public sealed class BattleStats
+    {
+        /// <summary>ATK gained per Rank of the face-up Xyz monsters we control (F0: 500), 0 if none.</summary>
+        public int AtkPerXyzRank;
+        /// <summary>The Rank sum also counts Xyz monsters in the opponent's GY.</summary>
+        public bool RanksInOpponentGrave;
+        /// <summary>ATK change of every monster the opponent controls while this is face-up (Ray Lancer: -500).</summary>
+        public int OpponentAtk;
+        /// <summary>After destroying a monster by battle, attack again by detaching this many materials (Ray Lancer); -1 if it cannot.</summary>
+        public int ChainAttackDetach = -1;
+        /// <summary>At the start of the Battle Phase, negate the opponent's monsters ("attack": only attack position ones), or null.</summary>
+        public string BattleStartNegate;
+        public bool Any { get { return AtkPerXyzRank != 0 || OpponentAtk != 0 || ChainAttackDetach >= 0 || BattleStartNegate != null; } }
+    }
+
     public sealed class CardEntry
     {
         public CardData Data;
@@ -170,6 +202,12 @@ namespace WindBot.Agent.Knowledge
         public bool NoSameNameXyz;
         public readonly List<EffectEntry> Effects = new List<EffectEntry>();
         public CardLink Material;
+        /// <summary>Xyz summon on top of one Xyz monster we control, or null.</summary>
+        public OverlayProc Overlay;
+        /// <summary>The Xyz materials are Xyz monsters (F0), and whether they must all have the same Rank.</summary>
+        public bool XyzOfXyz;
+        public bool SameRankMaterials;
+        public readonly BattleStats Battle = new BattleStats();
         /// <summary>Incoming links: (card id, effect index or 0 for material, relation).</summary>
         public readonly List<KeyValuePair<int, string>> LinkedFrom = new List<KeyValuePair<int, string>>();
         public readonly List<string> Notes = new List<string>();
@@ -608,6 +646,7 @@ namespace WindBot.Agent.Knowledge
                     string limit = DeepText(s, def.Target);
                     if (limit.Contains("SUMMON_TYPE_XYZ") && limit.Contains("GetCode()")) c.NoSameNameXyz = true;
                 }
+                ReadBattleStats(c, e, def, s);
                 e.Guard = ReadBattleGuard(def, s, cond);
                 e.NegateScope = ReadNegateScope(e, def, s);
                 e.Response = ReadResponse(e, def, s);
@@ -628,6 +667,72 @@ namespace WindBot.Agent.Knowledge
                 m.Location = "MZONE";
                 m.Filter = s.ReadFilter(s.Material.FilterExpr);
                 c.Material = m;
+                if (s.Material.Kind == "Xyz") ReadXyzVariants(c, s);
+            }
+        }
+
+        private static readonly Regex AtkPerRank = new Regex(@"GetSum\(\s*Card\.GetRank\s*\)\s*\*\s*(\d+)", RegexOptions.Compiled);
+        private static readonly Regex HandFilterUse = new Regex(@"(?:GetMatchingGroup|IsExistingMatchingCard|SelectMatchingCard)\(\s*s\.(\w+)\s*,\s*tp\s*,\s*LOCATION_HAND\b", RegexOptions.Compiled);
+
+        private static string FnName(string expr) { return expr != null && expr.StartsWith("s.") ? expr.Substring(2) : expr; }
+
+        /// <summary>F0 (2 Xyz monsters with the same Rank) and Ray Lancer (on top of a Rank 4 or lower Xyz, discarding a Spell/Trap).</summary>
+        private static void ReadXyzVariants(CardEntry c, LuaScript s)
+        {
+            MaterialDef md = s.Material;
+            if (c.Material.Filter.Predicates.Any(p => p.Method == "IsType" && p.Args.Any(a => a.Contains("TYPE_XYZ"))))
+            {
+                c.XyzOfXyz = true;
+                c.SameRankMaterials = md.GroupCheck != null && DeepText(s, FnName(md.GroupCheck)).Contains("GetClassCount(Card.GetRank)==1");
+                c.Material.Relation = "엑시즈 소재 (" + (c.SameRankMaterials ? "같은 랭크 " : "") + "엑시즈 몬스터 × " + md.Min + (md.Max > md.Min ? "장 이상" : "장") + ")";
+            }
+            if (md.AltFilterExpr == null) return;
+            FilterInfo alt = s.ReadFilter(md.AltFilterExpr);
+            if (!alt.Predicates.Any(p => p.Method == "IsType" && p.Args.Any(a => a.Contains("TYPE_XYZ"))))
+            {
+                c.Notes.Add("엑시즈가 아닌 몬스터 위 소환 미해석: " + md.AltFilterExpr);
+                return;
+            }
+            OverlayProc o = new OverlayProc();
+            foreach (Predicate p in alt.Predicates)
+            {
+                int n;
+                if (p.Method == "IsRankBelow" && p.Args.Count > 0 && int.TryParse(p.Args[0], out n)) o.RankMax = n;
+                else if (p.Method == "IsRank" && p.Args.Count > 0 && int.TryParse(p.Args[0], out n)) o.RankExact = n;
+            }
+            string op = md.AltOp != null ? DeepText(s, FnName(md.AltOp)) : "";
+            o.OncePerTurn = Regex.IsMatch(op, @"(?:Has|Get)FlagEffect\(\s*tp\s*,\s*id\s*\)");
+            Match h = HandFilterUse.Match(op);
+            if (op.Contains("REASON_DISCARD") && h.Success) o.DiscardFilter = s.ReadFilter("s." + h.Groups[1].Value);
+            o.Text = "엑시즈 몬스터 1장 위 (" + (o.RankExact >= 0 ? "랭크 " + o.RankExact : o.RankMax < 99 ? "랭크 " + o.RankMax + " 이하" : "랭크 무관") + ")"
+                     + (o.DiscardFilter != null ? ", 패 1장 버림" : "") + (o.OncePerTurn ? ", 1턴 1번" : "");
+            c.Overlay = o;
+        }
+
+        private static void ReadBattleStats(CardEntry c, EffectEntry e, EffectDef def, LuaScript s)
+        {
+            string code = def.CodeExpr ?? "";
+            string value = def.ValueExpr ?? "";
+            if (code.Contains("EFFECT_UPDATE_ATTACK"))
+            {
+                Match m = AtkPerRank.Match(value);
+                if (m.Success && value.Contains("TYPE_XYZ"))
+                {
+                    c.Battle.AtkPerXyzRank = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+                    c.Battle.RanksInOpponentGrave = Regex.IsMatch(value, @"LOCATION_MZONE\s*,\s*LOCATION_GRAVE");
+                }
+                int v;
+                string tr = def.TargetRangeExpr ?? "";
+                if ((def.TypeExpr ?? "").Contains("EFFECT_TYPE_FIELD") && Regex.IsMatch(tr, @"^\s*0\s*,\s*LOCATION_MZONE\s*$")
+                    && int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out v))
+                    c.Battle.OpponentAtk += v;
+            }
+            if (e.Events.Contains("BATTLE_DESTROYING") && (def.Operation ?? "").Contains("ChainAttack"))
+                c.Battle.ChainAttackDetach = e.DetachCount;
+            if (e.Events.Any(x => x.Contains("BATTLE_START")) && e.Categories.Contains("DISABLE"))
+            {
+                string t = DeepText(s, def.Target) + DeepText(s, def.Operation);
+                c.Battle.BattleStartNegate = t.Contains("IsAttackPos") ? "attack" : "all";
             }
         }
 
@@ -889,7 +994,24 @@ namespace WindBot.Agent.Knowledge
                         }
                 }
 
-            if (c.Material != null)
+            if (c.Overlay != null)
+            {
+                c.Overlay.DiscardTargets.Clear();
+                if (c.Overlay.DiscardFilter != null && !c.Overlay.DiscardFilter.Partial)
+                    foreach (int id in (c.Opponent ? OpponentMainDeck : MainDeck).Distinct())
+                        if (Matches(Cards[id], c.Overlay.DiscardFilter, c.Data.Id)) c.Overlay.DiscardTargets.Add(id);
+            }
+            if (c.Material != null && c.XyzOfXyz)
+            {
+                c.Material.Targets.Clear();
+                foreach (int id in (c.Opponent ? OpponentExtraDeck : ExtraDeck).Distinct())
+                    if (id != c.Data.Id && IsType(Cards[id].Data, "TYPE_XYZ"))
+                    {
+                        c.Material.Targets.Add(id);
+                        Cards[id].LinkedFrom.Add(new KeyValuePair<int, string>(c.Data.Id, "소재로 쓰여 소환됨: " + c.Material.Relation));
+                    }
+            }
+            else if (c.Material != null)
             {
                 c.Material.Targets.Clear();
                 foreach (int id in (c.Opponent ? OpponentMainDeck : MainDeck).Distinct())
@@ -1250,6 +1372,17 @@ namespace WindBot.Agent.Knowledge
                 if (!c.ScriptFound) sb.AppendLine("- 스크립트 없음" + (c.Notes.Count > 0 ? " (" + String.Join(", ", c.Notes.ToArray()) + ")" : ""));
                 if (c.Material != null)
                     sb.AppendLine("- 소환 조건: " + c.Material.Relation + FilterText(c.Material.Filter) + " → 이 덱에서: " + NamesOf(c.Material.Targets));
+                if (c.Overlay != null)
+                    sb.AppendLine("- 다른 소환 방법: " + c.Overlay.Text + (c.Overlay.DiscardFilter != null ? " → 버릴 수 있는 카드: " + NamesOf(c.Overlay.DiscardTargets) : ""));
+                if (c.Battle.Any)
+                {
+                    List<string> b = new List<string>();
+                    if (c.Battle.AtkPerXyzRank != 0) b.Add("공격력 +" + c.Battle.AtkPerXyzRank + " × (자신 필드" + (c.Battle.RanksInOpponentGrave ? " + 상대 묘지" : "") + " 엑시즈 랭크 합)");
+                    if (c.Battle.OpponentAtk != 0) b.Add("상대 몬스터 공격력 " + c.Battle.OpponentAtk.ToString("+0;-0", CultureInfo.InvariantCulture));
+                    if (c.Battle.ChainAttackDetach >= 0) b.Add("전투 파괴 후 연속 공격 (소재 " + c.Battle.ChainAttackDetach + "개)");
+                    if (c.Battle.BattleStartNegate != null) b.Add("배틀 페이즈 개시 시 상대 " + (c.Battle.BattleStartNegate == "attack" ? "공격 표시 " : "") + "몬스터 효과 무효");
+                    sb.AppendLine("- 전투: " + String.Join(", ", b.ToArray()));
+                }
 
                 foreach (EffectEntry e in c.Effects)
                 {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace WindBot.Agent.Knowledge
 {
@@ -20,6 +21,30 @@ namespace WindBot.Agent.Knowledge
         public bool NormalSummonAvailable = true;
         /// <summary>Opponent's face-up cards on the field, or -1 if not known (offline tests).</summary>
         public int OpponentFaceUp = -1;
+        /// <summary>Our Battle Phase is still ahead this turn (not the duel's first turn, not past Main Phase 1).</summary>
+        public bool CanAttack;
+        public int OwnLp = 8000;
+        public int OpponentLp = 8000;
+        public readonly List<OpponentMonster> OpponentMonsters = new List<OpponentMonster>();
+        /// <summary>Sum of the Ranks of the Xyz monsters in the opponent's GY (F0's ATK).</summary>
+        public int OpponentGraveXyzRanks;
+    }
+
+    /// <summary>An opponent's monster as the planner's battle term sees it.</summary>
+    public sealed class OpponentMonster
+    {
+        public int Id;
+        public int Atk;
+        public int Def;
+        public bool AttackPosition;
+        public bool FaceUp;
+        /// <summary>Interruptions it still offers from the field (lost while its effects are negated).</summary>
+        public double Held;
+        public bool Indestructible;
+        /// <summary>A destroy replacement protects it once, at this cost to its controller (Detonator: a material).</summary>
+        public double ReplaceCost = -1;
+
+        public OpponentMonster Clone() { return (OpponentMonster)MemberwiseClone(); }
     }
 
     // ------------------------------------------------------------------ interruptions
@@ -154,6 +179,9 @@ namespace WindBot.Agent.Knowledge
         public double EndValue;
         /// <summary>Follow-up worth of the cards still in hand at the end of the turn (next turn's use).</summary>
         public double FollowValue;
+        /// <summary>Battle Phase still ahead: destroying the opponent's monsters and damage with the end board (breakthrough).</summary>
+        public double BattleValue;
+        public readonly List<string> Battle = new List<string>();
         public int HandSpent;
         /// <summary>The search budget ran out somewhere below this result, so it may be an underestimate (not memoised).</summary>
         public bool Truncated;
@@ -166,10 +194,12 @@ namespace WindBot.Agent.Knowledge
             sb.Append(Value.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" (흐름 ").Append(FlowValue.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" + 턴 종료 방해 ").Append(EndValue.ToString("0.#", CultureInfo.InvariantCulture))
-              .Append(" + 후속 ").Append(FollowValue.ToString("0.#", CultureInfo.InvariantCulture))
-              .Append(" − 효율 ").Append(HandSpent).Append("장)");
+              .Append(" + 후속 ").Append(FollowValue.ToString("0.#", CultureInfo.InvariantCulture));
+            if (BattleValue != 0) sb.Append(" + 전투 ").Append(BattleValue.ToString("0.#", CultureInfo.InvariantCulture));
+            sb.Append(" − 효율 ").Append(HandSpent).Append("장)");
             if (Moves.Count > 0) sb.Append(" 행동: ").Append(String.Join(" → ", Moves.Select(m => m.Text).ToArray()));
             if (EndBoard.Count > 0) sb.Append(" | 방해: ").Append(String.Join(", ", EndBoard.ToArray()));
+            if (Battle.Count > 0) sb.Append(" | 전투: ").Append(String.Join(", ", Battle.ToArray()));
             return sb.ToString();
         }
     }
@@ -329,11 +359,19 @@ namespace WindBot.Agent.Knowledge
         private int _targetCap = 2;
         /// <summary>Opponent's face-up cards right now (-1: unknown, e.g. offline tests).</summary>
         private int _oppFaceUp = -1;
+        private bool _canAttack;
+        private int _ownLp = 8000, _oppLp = 8000, _oppGraveRanks;
+        private List<OpponentMonster> _oppMons = new List<OpponentMonster>();
 
         private St FromSnapshot(ZoneSnapshot z, GameCardDb db)
         {
             _targetCap = Math.Max(z.OpponentFaceUp, (int)_w.BaseOf("int.expected_targets"));
             _oppFaceUp = z.OpponentFaceUp;
+            _canAttack = z.CanAttack;
+            _ownLp = z.OwnLp;
+            _oppLp = z.OpponentLp;
+            _oppGraveRanks = z.OpponentGraveXyzRanks;
+            _oppMons = z.OpponentMonsters.Select(x => x.Clone()).ToList();
             St s = new St { NS = z.NormalSummonAvailable };
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
             foreach (var m in z.Monsters) s.Mons.Add(new Mon { Id = m.Key, Mats = m.Value });
@@ -438,10 +476,12 @@ namespace WindBot.Agent.Knowledge
             r.FlowValue = gain + rest.FlowValue;
             r.EndValue = rest.EndValue;
             r.FollowValue = rest.FollowValue;
+            r.BattleValue = rest.BattleValue;
             r.HandSpent = rest.HandSpent;
             r.Truncated = rest.Truncated;
             r.EndBoard.AddRange(rest.EndBoard);
-            r.Value = r.FlowValue + r.EndValue + r.FollowValue - _w.EfficiencyPerHandCard * r.HandSpent;
+            r.Battle.AddRange(rest.Battle);
+            r.Value = r.FlowValue + r.EndValue + r.FollowValue + r.BattleValue - _w.EfficiencyPerHandCard * r.HandSpent;
             return r;
         }
 
@@ -450,8 +490,9 @@ namespace WindBot.Agent.Knowledge
             PlanResult r = new PlanResult();
             r.EndValue = EndOfTurn(s, r.EndBoard);
             r.FollowValue = FollowTerm(s) + s.Bonus + s.Draws * DrawExpect(s);
+            r.BattleValue = BattleTerm(s, r.Battle);
             r.HandSpent = s.HandSpent;
-            r.Value = r.EndValue + r.FollowValue - _w.EfficiencyPerHandCard * s.HandSpent;
+            r.Value = r.EndValue + r.FollowValue + r.BattleValue - _w.EfficiencyPerHandCard * s.HandSpent;
             return r;
         }
 
@@ -574,7 +615,8 @@ namespace WindBot.Agent.Knowledge
             foreach (int xid in s.Extra.Where(x => x.Value > 0).Select(x => x.Key).ToList())
             {
                 CardEntry x = _db.Get(xid);
-                if (x == null || x.Material == null || _w.Excluded.Contains(xid) || !x.Material.Relation.StartsWith("엑시즈")) continue;
+                if (x == null || x.Material == null || _w.Excluded.Contains(xid) || !x.Material.Relation.StartsWith("엑시즈") || x.XyzOfXyz) continue;
+                if (SameNameBlocked(s, xid)) continue;
                 int level = MaterialLevel(x);
                 HashSet<int> ok = new HashSet<int>(x.Material.Targets);
                 List<int> mats = Enumerable.Range(0, s.Mons.Count)
@@ -589,7 +631,184 @@ namespace WindBot.Agent.Knowledge
                 n.Mons.Add(xm);
                 AddArrival(result, n, xm, "SPSUMMON_SUCCESS", new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환" });
             }
+            OverlaySummons(s, result);
             return result;
+        }
+
+        private int Rank(int id) { CardEntry c = _db.Get(id); return c == null ? -1 : c.Data.Level; }
+
+        /// <summary>
+        /// Xyz summons that use Xyz monsters we control: on top of one (Ray Lancer: Rank 4 or lower, discarding a Spell/Trap,
+        /// once per turn) or from two with the same Rank (F0). The material monsters and their own materials all become
+        /// the new monster's materials.
+        /// </summary>
+        private void OverlaySummons(St s, List<KeyValuePair<List<PlanMove>, St>> result)
+        {
+            foreach (int xid in s.Extra.Where(x => x.Value > 0).Select(x => x.Key).ToList())
+            {
+                CardEntry x = _db.Get(xid);
+                if (x == null || _w.Excluded.Contains(xid) || SameNameBlocked(s, xid)) continue;
+                if (x.Overlay != null)
+                {
+                    OverlayProc o = x.Overlay;
+                    string key = "overlay:" + xid;
+                    if (o.OncePerTurn && s.Used.Contains(key)) goto xyzOfXyz;
+                    int discard = 0;
+                    if (o.DiscardFilter != null)
+                    {
+                        discard = s.Hand.Where(h => h.Value > 0 && o.DiscardTargets.Contains(h.Key))
+                                        .OrderBy(h => StaticValue(s, _db.Get(h.Key))).Select(h => h.Key).FirstOrDefault();
+                        if (discard == 0) goto xyzOfXyz;
+                    }
+                    for (int i = 0; i < s.Mons.Count; ++i)
+                    {
+                        Mon m = s.Mons[i];
+                        int r = Rank(m.Id);
+                        if (!IsXyz(m.Id) || m.Id == xid || r > o.RankMax || (o.RankExact >= 0 && r != o.RankExact)) continue;
+                        if (s.Mons.Take(i).Any(y => y.Id == m.Id && y.Mats == m.Mats)) continue; // same monster twice: one branch
+                        St n = s.Clone();
+                        n.Mons.RemoveAt(i);
+                        n.Add(n.Extra, xid, -1);
+                        if (o.OncePerTurn) n.Used.Add(key);
+                        if (discard != 0) { n.TakeFromHand(discard); n.Add(n.Grave, discard, 1); }
+                        Mon xm = new Mon { Id = xid, Mats = m.Mats + 1 };
+                        n.Mons.Add(xm);
+                        PlanMove mv = new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환 (" + Name(_db.Get(m.Id)) + " 위" + (discard != 0 ? ", 버림: " + Name(_db.Get(discard)) : "") + ")" };
+                        mv.CostIds.Add(m.Id);
+                        if (discard != 0) mv.CostIds.Add(discard);
+                        AddArrival(result, n, xm, "SPSUMMON_SUCCESS", mv);
+                    }
+                }
+            xyzOfXyz:
+                if (!x.XyzOfXyz || x.Material == null) continue;
+                int need = Math.Max(2, Regex.Match(x.Material.Relation, @"× (\d+)").Success ? int.Parse(Regex.Match(x.Material.Relation, @"× (\d+)").Groups[1].Value) : 2);
+                List<int> cands = Enumerable.Range(0, s.Mons.Count).Where(i => IsXyz(s.Mons[i].Id) && s.Mons[i].Id != xid && x.Material.Targets.Contains(s.Mons[i].Id)).ToList();
+                foreach (var group in cands.GroupBy(i => x.SameRankMaterials ? Rank(s.Mons[i].Id) : 0))
+                {
+                    List<int> g = group.ToList();
+                    if (g.Count < need) continue;
+                    HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (List<int> pick in Combinations(g, need))
+                    {
+                        string sig = String.Join(",", pick.Select(i => s.Mons[i].Id + ":" + s.Mons[i].Mats).OrderBy(t => t, StringComparer.Ordinal).ToArray());
+                        if (!seen.Add(sig)) continue;
+                        St n = s.Clone();
+                        int mats = pick.Sum(i => s.Mons[i].Mats) + need;
+                        foreach (int i in pick.OrderByDescending(i => i)) n.Mons.RemoveAt(i);
+                        n.Add(n.Extra, xid, -1);
+                        Mon xm = new Mon { Id = xid, Mats = mats };
+                        n.Mons.Add(xm);
+                        PlanMove mv = new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환 (" + String.Join(" + ", pick.Select(i => Name(_db.Get(s.Mons[i].Id))).ToArray()) + ")" };
+                        mv.CostIds.AddRange(pick.Select(i => s.Mons[i].Id));
+                        AddArrival(result, n, xm, "SPSUMMON_SUCCESS", mv);
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<List<int>> Combinations(List<int> items, int k, int start = 0)
+        {
+            if (k == 0) { yield return new List<int>(); yield break; }
+            for (int i = start; i <= items.Count - k; ++i)
+                foreach (List<int> rest in Combinations(items, k - 1, i + 1))
+                {
+                    rest.Insert(0, items[i]);
+                    yield return rest;
+                }
+        }
+
+        // ---------------------------------------------------------- battle (breakthrough)
+
+        /// <summary>
+        /// The Battle Phase after this end board, greedily: strongest attacker first, each at its best target (or directly when
+        /// the opponent has no monster left), only attacks that gain. Destroying a monster is worth battle.destroy plus the
+        /// interruptions it held; damage battle.lp per 8000; total damage reaching their LP is battle.lethal.
+        /// ATK changes, chain attacks and battle-start negation come from the Lua (CardEntry.Battle).
+        /// </summary>
+        private double BattleTerm(St s, List<string> notes)
+        {
+            if (!_canAttack || s.Mons.Count == 0) return 0;
+            double destroy = _w.BaseOf("battle.destroy"), lpValue = _w.BaseOf("battle.lp");
+            int rankSum = s.Mons.Where(m => IsXyz(m.Id)).Sum(m => Math.Max(0, Rank(m.Id)));
+            int oppAtk = s.Mons.Where(m => !m.Negated).Sum(m => { CardEntry c = _db.Get(m.Id); return c == null ? 0 : c.Battle.OpponentAtk; });
+            string negate = s.Mons.Where(m => !m.Negated).Select(m => _db.Get(m.Id)).Where(c => c != null && c.Battle.BattleStartNegate != null)
+                                  .Select(c => c.Battle.BattleStartNegate).OrderBy(t => t == "all" ? 0 : 1).FirstOrDefault();
+            double value = 0;
+            List<OpponentMonster> foes = new List<OpponentMonster>();
+            foreach (OpponentMonster o in _oppMons)
+            {
+                OpponentMonster f = o.Clone();
+                if (f.FaceUp) f.Atk = Math.Max(0, f.Atk + oppAtk);
+                if (negate != null && f.FaceUp && (negate == "all" || f.AttackPosition))
+                {
+                    // Negated for the rest of the turn: no protection of its own, no interruptions while we keep playing.
+                    f.Indestructible = false;
+                    f.ReplaceCost = -1;
+                    value += f.Held * _w.BaseOf("battle.negate_held");
+                    f.Held = 0;
+                    notes.Add(Name(_db.Get(f.Id)) + " 무효");
+                }
+                foes.Add(f);
+            }
+            if (oppAtk != 0 && foes.Count > 0) notes.Add("상대 공격력 " + oppAtk);
+
+            var attackers = s.Mons.Select(m => new { M = m, C = _db.Get(m.Id) }).Where(a => a.C != null && a.C.Data.Atk >= 0)
+                .Select(a => new { a.M, a.C, Atk = a.C.Data.Atk + (a.M.Negated ? 0 : a.C.Battle.AtkPerXyzRank * (rankSum + (a.C.Battle.RanksInOpponentGrave ? _oppGraveRanks : 0))) })
+                .OrderByDescending(a => a.Atk).ToList();
+            int damage = 0;
+            foreach (var a in attackers)
+            {
+                int extra = a.C.Battle.ChainAttackDetach >= 0 && !a.M.Negated ? (a.C.Battle.ChainAttackDetach == 0 ? 1 : a.M.Mats / a.C.Battle.ChainAttackDetach) : 0;
+                for (int attack = 0; attack <= extra; ++attack)
+                {
+                    List<OpponentMonster> alive = foes.Where(f => f != null).ToList();
+                    if (alive.Count == 0)
+                    {
+                        if (attack > 0) break; // a chain attack needs a destroyed monster before it
+                        damage += a.Atk;
+                        value += a.Atk / 8000.0 * lpValue;
+                        notes.Add(Name(a.C) + " 직접 " + a.Atk);
+                        break;
+                    }
+                    OpponentMonster best = null;
+                    double bestScore = 0;
+                    int bestDamage = 0;
+                    bool bestKills = false;
+                    foreach (OpponentMonster f in alive)
+                    {
+                        int dmg = 0;
+                        bool kills = false;
+                        double score;
+                        double worth = destroy + f.Held;
+                        bool guarded = f.Indestructible || f.ReplaceCost >= 0;
+                        if (!f.FaceUp && !f.AttackPosition) { kills = a.Atk >= 2000 && !guarded; score = kills ? worth * 0.5 : -1; }
+                        else if (f.AttackPosition)
+                        {
+                            if (a.Atk > f.Atk) { dmg = a.Atk - f.Atk; kills = !guarded; score = (kills ? worth : f.ReplaceCost >= 0 ? f.ReplaceCost : 0) + dmg / 8000.0 * lpValue; }
+                            else if (a.Atk == f.Atk) { kills = !guarded; score = (kills ? worth : 0) - destroy; }
+                            else score = -1;
+                        }
+                        else
+                        {
+                            if (a.Atk > f.Def) { kills = !guarded; score = kills ? worth : f.ReplaceCost >= 0 ? f.ReplaceCost : 0; }
+                            else score = -1;
+                        }
+                        if (score > bestScore) { bestScore = score; best = f; bestDamage = dmg; bestKills = kills; }
+                    }
+                    if (best == null) break;
+                    value += bestScore;
+                    damage += bestDamage;
+                    notes.Add(Name(a.C) + " → " + Name(_db.Get(best.Id)) + (bestKills ? " 파괴" : " (보호)") + (bestDamage > 0 ? " " + bestDamage : ""));
+                    if (bestKills) foes[foes.IndexOf(best)] = null;
+                    else { best.ReplaceCost = -1; break; } // protection used: the next attack can destroy it, this attacker is done
+                }
+            }
+            if (damage >= _oppLp)
+            {
+                notes.Add("LP " + _oppLp + " 이상: 승리");
+                return _w.BaseOf("battle.lethal");
+            }
+            return value;
         }
 
         private int UnusedEffects(St s, int id)

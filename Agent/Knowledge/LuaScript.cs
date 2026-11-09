@@ -78,6 +78,7 @@ namespace WindBot.Agent.Knowledge
         public string CodeExpr;
         public string CategoryExpr;
         public string RangeExpr;
+        public string TargetRangeExpr;
         public string ValueExpr;
         public string PropertyExpr;
         public string CountLimitExpr;
@@ -106,6 +107,12 @@ namespace WindBot.Agent.Knowledge
         public int Level;
         public int Min;
         public int Max;
+        /// <summary>Xyz.AddProcedure alterf: summon on top of one monster we control (e.g. a Rank 4 or lower Xyz for Ray Lancer), or null.</summary>
+        public string AltFilterExpr;
+        /// <summary>Xyz.AddProcedure op: what the alternative summon also needs (a discard, a once-per-turn flag), or null.</summary>
+        public string AltOp;
+        /// <summary>Xyz.AddProcedure exchk: a check over the whole material group (F0: all the same Rank), or null.</summary>
+        public string GroupCheck;
     }
 
     public sealed class Selection
@@ -282,6 +289,10 @@ namespace WindBot.Agent.Knowledge
                     Material.Max = Material.Min;
                     if (a.Count > 6 && a[6].Contains("InfiniteMats")) Material.Max = 99;
                     else if (a.Count > 5) { int mx; if (int.TryParse(a[5], out mx)) Material.Max = mx; }
+                    // Xyz.AddProcedure(c, f, lv, ct, alterf, desc, maxct, op, mustbemat, exchk)
+                    if (a.Count > 3 && a[3] != "nil") Material.AltFilterExpr = a[3];
+                    if (a.Count > 6 && a[6] != "nil") Material.AltOp = a[6];
+                    if (a.Count > 8 && a[8] != "nil") Material.GroupCheck = a[8];
                 }
                 else if ((m = LinkProc.Match(line)).Success)
                 {
@@ -309,6 +320,7 @@ namespace WindBot.Agent.Knowledge
                 case "Code": e.CodeExpr = args; break;
                 case "Category": e.CategoryExpr = args; break;
                 case "Range": e.RangeExpr = args; break;
+                case "TargetRange": e.TargetRangeExpr = args; break;
                 case "Value": e.ValueExpr = args; break;
                 case "Property": e.PropertyExpr = args; break;
                 case "CountLimit": e.CountLimitExpr = args; break;

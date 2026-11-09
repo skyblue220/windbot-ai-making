@@ -63,6 +63,8 @@ namespace WindBot.Agent.Knowledge
             { "int.battle_factor", 0.5 },
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
+            { "battle.lethal", 10000 },  // planner: the end board deals lethal damage in the Battle Phase still ahead
+            { "battle.negate_held", 0.5 }, // planner: share of an opponent monster's held interruptions removed by negating it for our turn (Ray Lancer)
 
             // Follow-up: a card kept in hand is worth part of what it would start next turn (once-per-turn uses reset).
             { "follow.discount", 0.3 },  // next turn is uncertain (opponent's turn, hand traps); a correction, so well below the end board
