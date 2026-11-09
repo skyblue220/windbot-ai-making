@@ -111,6 +111,35 @@ namespace WindBot.Agent.Knowledge
         public BattleGuard Guard;
         /// <summary>What a negation effect can negate, read from Lua: "monster", "spelltrap" or "all"; null when the effect does not negate.</summary>
         public string NegateScope;
+        /// <summary>What this interruption can respond to, read from its Lua condition (null when it is not a response effect).</summary>
+        public ResponseFilter Response;
+    }
+
+    /// <summary>
+    /// The kind of play an interruption can answer, read from its condition function:
+    /// e.g. Ash Blossom = an effect that adds / summons / sends from the Deck; Ghost Ogre = an effect of a card on the field
+    /// (monster effect, or a spell/trap effect that is not a card activation).
+    /// </summary>
+    public sealed class ResponseFilter
+    {
+        /// <summary>"chain" (responds to an activation), "solving" (applies while it resolves), "target" (picks a face-up card), "summons" (after N summons).</summary>
+        public string Timing;
+        /// <summary>"monster", "spelltrap" or "any".</summary>
+        public string EffectType = "any";
+        /// <summary>Spell/trap card activations are excluded (only their effects on the field).</summary>
+        public bool NoCardActivation;
+        /// <summary>Where the activating card must be (LOCATION_ names, e.g. ONFIELD; GRAVE|HAND|REMOVED); empty = anywhere.</summary>
+        public readonly List<string> From = new List<string>();
+        /// <summary>The answered effect must include one of these (CATEGORY name, "@LOCATION" when it must involve that location, e.g. TOHAND@DECK).</summary>
+        public readonly List<string> Categories = new List<string>();
+        /// <summary>Only an opponent's effect (rp==1-tp and similar).</summary>
+        public bool OpponentOnly;
+        /// <summary>Only a card with the name declared on activation (Crossout Designator).</summary>
+        public bool DeclaredName;
+        /// <summary>Summons the opponent must have made this turn (Nibiru: 5).</summary>
+        public int SummonCount;
+        /// <summary>Nothing in the condition narrowed it: treated as answering anything.</summary>
+        public bool Open { get { return EffectType == "any" && !NoCardActivation && From.Count == 0 && Categories.Count == 0 && !DeclaredName && SummonCount == 0; } }
     }
 
     public sealed class CardEntry
@@ -331,6 +360,37 @@ namespace WindBot.Agent.Knowledge
         /// spell / trap effects only (re:IsSpellTrapEffect(), ...), or all. Null when the effect does not negate
         /// (no NEGATE / DISABLE category and no Negate call in its operation).
         /// </summary>
+        private static readonly Dictionary<string, string> CategoryNames = new Dictionary<string, string>
+        {
+            { "TOHAND", "패에 넣기" }, { "SEARCH", "서치" }, { "SPECIAL_SUMMON", "특수 소환" }, { "TOGRAVE", "묘지로 보내기" },
+            { "DRAW", "드로우" }, { "DECKDES", "덱에서 묘지로" }, { "REMOVE", "제외" }, { "TODECK", "덱으로" }, { "TOEXTRA", "엑스트라 덱으로" }
+        };
+        private static readonly Dictionary<string, string> LocationNames = new Dictionary<string, string>
+        {
+            { "DECK", "덱" }, { "GRAVE", "묘지" }, { "HAND", "패" }, { "REMOVED", "제외 존" }, { "EXTRA", "엑스트라 덱" },
+            { "ONFIELD", "필드" }, { "MZONE", "몬스터 존" }, { "SZONE", "마법·함정 존" }
+        };
+
+        public static string ResponseText(ResponseFilter f)
+        {
+            List<string> parts = new List<string>();
+            parts.Add(f.Timing == "chain" ? "발동에 체인" : f.Timing == "solving" ? "처리 시 적용" : f.Timing == "summons" ? "상대 소환 " + f.SummonCount + "회 이후" : f.Timing == "declared" ? "이름 선언" : "필드의 앞면 카드 선택");
+            if (f.OpponentOnly) parts.Add("상대 효과만");
+            if (f.EffectType != "any") parts.Add(f.EffectType == "monster" ? "몬스터 효과" : "마법·함정 효과");
+            if (f.NoCardActivation) parts.Add("몬스터 효과 또는 카드의 발동이 아닌 마법·함정 효과");
+            if (f.From.Count > 0) parts.Add("발동 위치: " + String.Join("/", f.From.Select(x => LocationNames.ContainsKey(x) ? LocationNames[x] : x).ToArray()));
+            if (f.Categories.Count > 0)
+                parts.Add("포함 효과: " + String.Join(", ", f.Categories.Select(x =>
+                {
+                    string[] kv = x.Split('@');
+                    string n = CategoryNames.ContainsKey(kv[0]) ? CategoryNames[kv[0]] : kv[0];
+                    return kv.Length > 1 ? (LocationNames.ContainsKey(kv[1]) ? LocationNames[kv[1]] : kv[1]) + "에서 " + n : n;
+                }).ToArray()));
+            if (f.DeclaredName) parts.Add("선언한 이름의 카드만");
+            if (f.Open) parts.Add(f.OpponentOnly ? "그 외 조건 없음" : "조건 없음(모든 효과)");
+            return String.Join(" / ", parts.ToArray());
+        }
+
         private static string ReadNegateScope(EffectEntry e, EffectDef def, LuaScript s)
         {
             string op = DeepText(s, def.Operation);
@@ -344,6 +404,61 @@ namespace WindBot.Agent.Knowledge
             if (monster && !spellTrap) return "monster";
             if (spellTrap && !monster) return "spelltrap";
             return "all";
+        }
+
+        private static readonly Regex CategoryCheck = new Regex(@"(?:check\w*|GetOperationInfo|GetPossibleOperationInfo|IsHasCategory)\(\s*(?:ev\s*,\s*)?CATEGORY_(\w+)(?:\s*,\s*(true|false))?");
+        private static readonly Regex CheckedLocation = new Regex(@"&\s*LOCATION_(DECK|GRAVE|HAND|REMOVED|EXTRA)\b");
+        private static readonly Regex TriggeringLocation = new Regex(@"==\s*LOCATION_(\w+)");
+        private static readonly Regex SummonCountCheck = new Regex(@"GetFlagEffect\(\s*1-tp\s*,\s*id\s*\)\s*>=\s*(\d+)");
+
+        /// <summary>
+        /// The response condition of an interruption: answers a chain (EVENT_CHAINING / CHAIN_SOLVING), negates, or fires after
+        /// the opponent's Nth summon. Read from the condition (and the target for picked cards); null for other effects.
+        /// </summary>
+        private static ResponseFilter ReadResponse(EffectEntry e, EffectDef def, LuaScript s)
+        {
+            bool chain = e.Events.Contains("CHAINING"), solving = e.Events.Contains("CHAIN_SOLVING");
+            string cond = DeepText(s, def.Condition);
+            Match count = SummonCountCheck.Match(cond);
+            if (!chain && !solving && e.NegateScope == null && !count.Success) return null;
+            ResponseFilter f = new ResponseFilter();
+            f.Timing = chain ? "chain" : solving ? "solving" : count.Success ? "summons" : "target";
+            if (count.Success) f.SummonCount = int.Parse(count.Groups[1].Value);
+
+            string t = f.Timing == "target" ? cond + " " + DeepText(s, def.Target) : cond;
+            bool monster = t.Contains("IsMonsterEffect()") || t.Contains("IsActiveType(TYPE_MONSTER)") || t.Contains("IsNegatableMonster");
+            bool spellTrap = t.Contains("IsSpellTrapEffect()") || t.Contains("IsSpellEffect()") || t.Contains("IsTrapEffect()")
+                          || t.Contains("IsActiveType(TYPE_SPELL+TYPE_TRAP)") || t.Contains("IsActiveType(TYPE_SPELL|TYPE_TRAP)");
+            f.NoCardActivation = t.Contains("not re:IsHasType(EFFECT_TYPE_ACTIVATE)");
+            // "monster effect, or a spell/trap effect that is not a card activation" (Ghost Ogre): any effect type, activations excluded.
+            f.EffectType = f.NoCardActivation ? "any" : monster && !spellTrap ? "monster" : spellTrap && !monster ? "spelltrap" : "any";
+            if (f.Timing == "target") f.From.Add("ONFIELD"); // a picked card is on the field
+
+            if (t.Contains("GetHandler():IsOnField()") && !f.From.Contains("ONFIELD")) f.From.Add("ONFIELD");
+            if (t.Contains("CHAININFO_TRIGGERING_LOCATION"))
+                foreach (Match m in TriggeringLocation.Matches(t))
+                    if (!f.From.Contains(m.Groups[1].Value)) f.From.Add(m.Groups[1].Value);
+
+            // Categories the answered effect must include: check(CATEGORY_X[, true]) with the checked location (&LOCATION_DECK).
+            Match loc = CheckedLocation.Match(t);
+            foreach (Match m in CategoryCheck.Matches(t))
+            {
+                string cat = m.Groups[1].Value;
+                bool located = loc.Success && m.Groups[2].Value != "false" && cat != "DRAW" && cat != "DECKDES" && cat != "SEARCH";
+                string key = located ? cat + "@" + loc.Groups[1].Value : cat;
+                if (!f.Categories.Contains(key)) f.Categories.Add(key);
+            }
+
+            f.OpponentOnly = Regex.IsMatch(cond, @"\b(rp|ep)\s*==\s*1-tp\b|\b(rp|ep)\s*~=\s*tp\b");
+            f.DeclaredName = DeepText(s, def.Operation).Contains("IsOriginalCodeRule(e:GetLabel())");
+            if (f.DeclaredName)
+            {
+                // Declares a name and stops that card wherever it is activated (Crossout Designator): not a field pick.
+                f.Timing = "declared";
+                f.From.Clear();
+                f.EffectType = "any";
+            }
+            return f;
         }
 
         private void BuildEffects(CardEntry c, LuaScript s)
@@ -391,6 +506,7 @@ namespace WindBot.Agent.Knowledge
                 }
                 e.Guard = ReadBattleGuard(def, s, cond);
                 e.NegateScope = ReadNegateScope(e, def, s);
+                e.Response = ReadResponse(e, def, s);
                 AddLinks(e, s, def);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
                     if (f != null && f.StartsWith("(inline)")) e.Unresolved.Add("inline function: " + f.Substring(9));
@@ -1035,6 +1151,7 @@ namespace WindBot.Agent.Knowledge
                     if (e.Categories.Count > 0) sb.AppendLine("  - 분류: " + String.Join(", ", e.Categories.ToArray()));
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " ('발동' 제약: 발동 무효되면 다시 발동 가능)" : " ('사용' 제약: 발동 무효돼도 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
+                    if (e.Response != null) sb.AppendLine("  - 응답 대상: " + ResponseText(e.Response));
                     if (e.NegateScope != null) sb.AppendLine("  - 무효 대상: " + (e.NegateScope == "monster" ? "몬스터 효과" : e.NegateScope == "spelltrap" ? "마법·함정 효과" : "전부"));
                     if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
                     if (e.Guard != null) sb.AppendLine("  - 전투: " + e.Guard.Describe());
