@@ -146,6 +146,9 @@ namespace WindBot.Agent
                         CardEntry oc = db.EnsureCard(id, true);
                         if (oc == null) continue;
                         OpponentMonster m = new OpponentMonster { Id = id, Atk = oc.Data.Atk, Def = oc.Data.Def, FaceUp = true, AttackPosition = parts.Length < 2 || parts[1] != "d" };
+                        int v; // optional stats, e.g. 27204312:d:3000:5500 (a token)
+                        if (parts.Length > 2 && int.TryParse(parts[2], out v)) m.Atk = v;
+                        if (parts.Length > 3 && int.TryParse(parts[3], out v)) m.Def = v;
                         foreach (EffectEntry e in oc.Effects)
                             if (e.Range != null && e.Range.Contains("MZONE") && im.IsInterrupt(oc, e)) m.Held += im.Value(oc, e, false);
                         zones.OpponentMonsters.Add(m);

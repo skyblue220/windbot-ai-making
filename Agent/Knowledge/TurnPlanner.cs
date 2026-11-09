@@ -284,6 +284,9 @@ namespace WindBot.Agent.Knowledge
             public Dictionary<int, int> Extra = new Dictionary<int, int>();
             public HashSet<string> Used = new HashSet<string>(StringComparer.Ordinal);
             public HashSet<int> NoNormalSummon = new HashSet<int>();
+            /// <summary>Turn locks already on us: Extra Deck only Xyz of this Rank / attacks only by Xyz of this Rank (-1 none, -2 nothing).</summary>
+            public int ExtraRank = -1;
+            public int AttackRank = -1;
             public bool NS;
             public int HandSpent;
             /// <summary>Cards drawn by our effects this turn (unknown cards: valued by the deck's expected draw at the end).</summary>
@@ -295,7 +298,7 @@ namespace WindBot.Agent.Knowledge
 
             public St Clone()
             {
-                St s = new St { NS = NS, HandSpent = HandSpent, Draws = Draws, Bonus = Bonus };
+                St s = new St { NS = NS, HandSpent = HandSpent, Draws = Draws, Bonus = Bonus, ExtraRank = ExtraRank, AttackRank = AttackRank };
                 s.Bottom.AddRange(Bottom);
                 foreach (var kv in Hand) s.Hand[kv.Key] = kv.Value;
                 foreach (var kv in Orig) s.Orig[kv.Key] = kv.Value;
@@ -321,7 +324,7 @@ namespace WindBot.Agent.Knowledge
                 foreach (int i in Inactive.OrderBy(x => x)) sb.Append('s').Append(i).Append(',');
                 sb.Append('|').Append(Grave.Values.Sum()).Append('|');
                 foreach (string u in Used.OrderBy(x => x, StringComparer.Ordinal)) sb.Append(u).Append(',');
-                sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent).Append('|').Append(Draws);
+                sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent).Append('|').Append(Draws).Append('|').Append(ExtraRank).Append('/').Append(AttackRank);
                 foreach (int i in Bottom.OrderBy(x => x)) sb.Append('b').Append(i);
                 foreach (int i in NoNormalSummon.OrderBy(x => x)) sb.Append('!').Append(i);
                 return sb.ToString();
@@ -393,6 +396,7 @@ namespace WindBot.Agent.Knowledge
                 {
                     KeyUsage u = db.PeekUsage(0, e);
                     if (u != null && e.Limit != null && u.Used >= e.Limit.Count) s.Used.Add(e.UsageKey);
+                    if (u != null && u.Resolved > 0) ApplyLocks(s, e); // e.g. a Ryzeal was rule summoned earlier this turn
                 }
             return s;
         }
@@ -523,6 +527,7 @@ namespace WindBot.Agent.Knowledge
                     {
                         St n = s.Clone();
                         n.Used.Add(proc.UsageKey);
+                        ApplyLocks(n, proc);
                         n.TakeFromHand(id);
                         double cost;
                         List<int> paid;
@@ -547,6 +552,7 @@ namespace WindBot.Agent.Knowledge
                             if (tc == null || s.Count(s.Hand, t) <= 0 || s.NoNormalSummon.Contains(t) || tc.Data.Level > 4 || _w.Excluded.Contains(t)) continue;
                             St n = s.Clone();
                             n.Used.Add(e.UsageKey);
+                            ApplyLocks(n, e);
                             n.TakeFromHand(t);
                             Mon m = new Mon { Id = t };
                             n.Mons.Add(m);
@@ -616,7 +622,7 @@ namespace WindBot.Agent.Knowledge
             {
                 CardEntry x = _db.Get(xid);
                 if (x == null || x.Material == null || _w.Excluded.Contains(xid) || !x.Material.Relation.StartsWith("엑시즈") || x.XyzOfXyz) continue;
-                if (SameNameBlocked(s, xid)) continue;
+                if (SameNameBlocked(s, xid) || !ExtraAllowed(s, xid)) continue;
                 int level = MaterialLevel(x);
                 HashSet<int> ok = new HashSet<int>(x.Material.Targets);
                 List<int> mats = Enumerable.Range(0, s.Mons.Count)
@@ -637,6 +643,25 @@ namespace WindBot.Agent.Knowledge
 
         private int Rank(int id) { CardEntry c = _db.Get(id); return c == null ? -1 : c.Data.Level; }
 
+        /// <summary>The turn locks an effect leaves on us (a second, different lock leaves nothing allowed).</summary>
+        private static void ApplyLocks(St s, EffectEntry e)
+        {
+            if (e.ExtraLockRank != -1)
+            {
+                const int any = GameCardDb.AnyXyzRank;
+                int l = e.ExtraLockRank;
+                s.ExtraRank = s.ExtraRank == -1 || s.ExtraRank == any ? (s.ExtraRank == any && l == any ? any : l)
+                            : l == any || l == s.ExtraRank ? s.ExtraRank : -2;
+            }
+            if (e.AttackLockRank != -1) s.AttackRank = s.AttackRank == -1 || s.AttackRank == e.AttackLockRank ? e.AttackLockRank : -2;
+        }
+
+        /// <summary>The Extra Deck lock allows this monster (e.g. after a Ryzeal rule summon only Rank 4 Xyz; F0 is Rank 1 by rule).</summary>
+        private bool ExtraAllowed(St s, int id)
+        {
+            return s.ExtraRank == -1 || (s.ExtraRank >= 0 && IsXyz(id) && (s.ExtraRank == GameCardDb.AnyXyzRank || Rank(id) == s.ExtraRank));
+        }
+
         /// <summary>
         /// Xyz summons that use Xyz monsters we control: on top of one (Ray Lancer: Rank 4 or lower, discarding a Spell/Trap,
         /// once per turn) or from two with the same Rank (F0). The material monsters and their own materials all become
@@ -647,7 +672,7 @@ namespace WindBot.Agent.Knowledge
             foreach (int xid in s.Extra.Where(x => x.Value > 0).Select(x => x.Key).ToList())
             {
                 CardEntry x = _db.Get(xid);
-                if (x == null || _w.Excluded.Contains(xid) || SameNameBlocked(s, xid)) continue;
+                if (x == null || _w.Excluded.Contains(xid) || SameNameBlocked(s, xid) || !ExtraAllowed(s, xid)) continue;
                 if (x.Overlay != null)
                 {
                     OverlayProc o = x.Overlay;
@@ -752,7 +777,9 @@ namespace WindBot.Agent.Knowledge
             }
             if (oppAtk != 0 && foes.Count > 0) notes.Add("상대 공격력 " + oppAtk);
 
+            if (s.AttackRank != -1) notes.Add("공격 제약: " + (s.AttackRank >= 0 ? "랭크 " + s.AttackRank + " 엑시즈만" : "공격 불가"));
             var attackers = s.Mons.Select(m => new { M = m, C = _db.Get(m.Id) }).Where(a => a.C != null && a.C.Data.Atk >= 0)
+                .Where(a => s.AttackRank == -1 || (s.AttackRank >= 0 && IsXyz(a.M.Id) && Rank(a.M.Id) == s.AttackRank))
                 .Select(a => new { a.M, a.C, Atk = a.C.Data.Atk + (a.M.Negated ? 0 : a.C.Battle.AtkPerXyzRank * (rankSum + (a.C.Battle.RanksInOpponentGrave ? _oppGraveRanks : 0))) })
                 .OrderByDescending(a => a.Atk).ToList();
             int damage = 0;
@@ -844,6 +871,7 @@ namespace WindBot.Agent.Knowledge
 
             St b = s.Clone();
             b.Used.Add(e.UsageKey);
+            ApplyLocks(b, e);
             if (fromHand) b.TakeFromHand(c.Data.Id);
             double cost;
             List<int> paid;

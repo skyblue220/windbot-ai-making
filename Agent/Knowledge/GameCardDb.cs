@@ -90,6 +90,13 @@ namespace WindBot.Agent.Knowledge
         public int? DescIndex;
         public string Label;
         public string Kind;
+        /// <summary>
+        /// After this effect (its operation registers EFFECT_CANNOT_SPECIAL_SUMMON on us for the turn), the Extra Deck allows only
+        /// Xyz monsters of this Rank (every main deck Ryzeal's rule summon: Rank 4); -1 no lock, -2 a lock we cannot read (nothing allowed).
+        /// </summary>
+        public int ExtraLockRank = -1; // AnyXyzRank (99): any Xyz monster
+        /// <summary>After this effect only Xyz monsters of this Rank can declare attacks this turn (Ryzeal Plugin: Rank 4); -1 no lock.</summary>
+        public int AttackLockRank = -1;
         public readonly List<string> Events = new List<string>();
         public readonly List<string> Categories = new List<string>();
         public string Range;
@@ -647,6 +654,7 @@ namespace WindBot.Agent.Knowledge
                     if (limit.Contains("SUMMON_TYPE_XYZ") && limit.Contains("GetCode()")) c.NoSameNameXyz = true;
                 }
                 ReadBattleStats(c, e, def, s);
+                ReadTurnLocks(e, def, s);
                 e.Guard = ReadBattleGuard(def, s, cond);
                 e.NegateScope = ReadNegateScope(e, def, s);
                 e.Response = ReadResponse(e, def, s);
@@ -707,6 +715,29 @@ namespace WindBot.Agent.Knowledge
             o.Text = "엑시즈 몬스터 1장 위 (" + (o.RankExact >= 0 ? "랭크 " + o.RankExact : o.RankMax < 99 ? "랭크 " + o.RankMax + " 이하" : "랭크 무관") + ")"
                      + (o.DiscardFilter != null ? ", 패 1장 버림" : "") + (o.OncePerTurn ? ", 1턴 1번" : "");
             c.Overlay = o;
+        }
+
+        public const int AnyXyzRank = 99;
+        private static readonly Regex XyzRankOnly = new Regex(@"not\s*\(\s*c:IsType\(\s*TYPE_XYZ\s*\)\s*and\s*c:IsRank\(\s*(\d+)\s*\)\s*\)", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Locks an effect puts on us for the rest of the turn from its operation (registered with Duel.RegisterEffect):
+        /// "cannot Special Summon from the Extra Deck, except Rank N Xyz" and "cannot declare attacks, except with Rank N Xyz".
+        /// </summary>
+        private static void ReadTurnLocks(EffectEntry e, EffectDef def, LuaScript s)
+        {
+            if (def.Operation == null || def.Operation.StartsWith("(inline)")) return;
+            string op = s.Body(def.Operation) ?? "";
+            if (!op.Contains("Duel.RegisterEffect")) return;
+            foreach (string block in Regex.Split(op, @"Effect\.CreateEffect\("))
+            {
+                Match only = XyzRankOnly.Match(block);
+                if (block.Contains("EFFECT_CANNOT_SPECIAL_SUMMON") && block.Contains("LOCATION_EXTRA"))
+                    e.ExtraLockRank = only.Success ? int.Parse(only.Groups[1].Value, CultureInfo.InvariantCulture)
+                                    : Regex.IsMatch(block, @"not\s+c:IsType\(\s*TYPE_XYZ\s*\)\s*end") ? AnyXyzRank : -2;
+                else if (block.Contains("EFFECT_CANNOT_ATTACK_ANNOUNCE") && only.Success)
+                    e.AttackLockRank = int.Parse(only.Groups[1].Value, CultureInfo.InvariantCulture);
+            }
         }
 
         private static void ReadBattleStats(CardEntry c, EffectEntry e, EffectDef def, LuaScript s)
@@ -1392,6 +1423,8 @@ namespace WindBot.Agent.Knowledge
                     if (!String.IsNullOrEmpty(e.Label)) sb.AppendLine("  - 설명: " + e.Label);
                     if (e.Categories.Count > 0) sb.AppendLine("  - 분류: " + String.Join(", ", e.Categories.ToArray()));
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " ('발동' 제약: 발동 무효되면 다시 발동 가능)" : " ('사용' 제약: 발동 무효돼도 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
+                    if (e.ExtraLockRank != -1) sb.AppendLine("  - 사용 후 이번 턴: 엑스트라 덱에서 " + (e.ExtraLockRank == AnyXyzRank ? "엑시즈만 특수 소환" : e.ExtraLockRank >= 0 ? "랭크 " + e.ExtraLockRank + " 엑시즈만 특수 소환" : "특수 소환 제약 (미해석)"));
+                    if (e.AttackLockRank != -1) sb.AppendLine("  - 사용 후 이번 턴: 랭크 " + e.AttackLockRank + " 엑시즈만 공격 선언");
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
                     if (e.Response != null) sb.AppendLine("  - 응답 대상: " + ResponseText(e.Response));
                     if (e.Activates)
