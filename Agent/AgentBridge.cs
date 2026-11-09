@@ -67,6 +67,8 @@ namespace WindBot.Agent
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
         private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
         private readonly List<PlanMove> _planAhead = new List<PlanMove>();
+        /// <summary>Cards we may not Normal Summon, with the last turn the lock lasts (Lightning Crash).</summary>
+        private readonly Dictionary<int, int> _noNormalSummonUntil = new Dictionary<int, int>();
         private const double PlanTargetBonus = 1000;
 
         /// <summary>Crossout Designator: declare a name, banish that card from our Main Deck, negate the opponent's cards of that name.</summary>
@@ -110,6 +112,7 @@ namespace WindBot.Agent
 
         private void BuildCardDb()
         {
+            _noNormalSummonUntil.Clear();
             if (_deckList == null) return;
             try
             {
@@ -465,6 +468,33 @@ namespace WindBot.Agent
                         break;
                     }
 
+                case RequestKind.YesNo:
+                    {
+                        // "...then you can ..." inside our own card's resolution (Plugin / Plasma Hole attaching a material):
+                        // a free extra the plan already counts, so take it. Prompts from other cards stay unscored.
+                        int code = (int)(r.Description >> 20);
+                        bool own = code != 0 && _deckList != null && (_deckList.Cards.Contains(code) || _deckList.ExtraCards.Contains(code));
+                        if (!own) break;
+                        r.Options[0].Estimate = 1;
+                        r.Options[1].Estimate = 0;
+                        r.Options[0].Info = (r.Options[0].Info ?? "") + " | 처리 중 추가 효과: 사용";
+                        r.NoExplore = true;
+                        break;
+                    }
+
+                case RequestKind.Option:
+                    {
+                        // "Add to hand or send to GY" (aux.ToHandOrElse, e.g. Infernal Flame Banshee ①): the plan counts the search.
+                        bool any = false;
+                        foreach (DecisionOption o in r.Options)
+                        {
+                            if (o.Description == StrAddToHand) { o.Estimate = 1; any = true; }
+                            else if (o.Description == StrSendToGrave) { o.Estimate = 0; any = true; }
+                        }
+                        if (any) r.NoExplore = true;
+                        break;
+                    }
+
                 case RequestKind.Chain:
                     {
                         bool opponentActed = _duel.LastChainPlayer == 1;
@@ -708,6 +738,9 @@ namespace WindBot.Agent
             return o;
         }
 
+        /// <summary>System strings of aux.ToHandOrElse's option prompt.</summary>
+        private const long StrAddToHand = 573, StrSendToGrave = 574;
+
         private static void AddYesNo(DecisionRequest r)
         {
             r.Options.Add(Option("Yes"));
@@ -775,7 +808,23 @@ namespace WindBot.Agent
         public void OnDraw(int player) { }
         public void OnNewTurn() { }
         public void OnNewPhase() { }
-        public void OnMove(ClientCard card, int previousControler, int previousLocation, int currentControler, int currentLocation) { }
+        public void OnMove(ClientCard card, int previousControler, int previousLocation, int currentControler, int currentLocation)
+        {
+            // A card our own effect added from the Deck under "you cannot Normal Summon/Set monsters with its name"
+            // (Lightning Crash): the lock lasts until the end of the next turn, and the planner must keep it after the chain.
+            if (_db == null || card == null || card.Id == 0 || currentControler != 0) return;
+            if (previousLocation != (int)CardLocation.Deck || currentLocation != (int)CardLocation.Hand) return;
+            foreach (ChainInfo link in _duel.CurrentChainInfo)
+            {
+                if (link.ActivatePlayer != 0) continue;
+                int id = link.RelatedCard != null && link.RelatedCard.Id != 0 ? link.RelatedCard.Id : link.ActivateId;
+                CardEntry c = _db.Get(id);
+                EffectEntry e = c != null ? _db.FindEffect(c, link.ActivateDescription) : null;
+                if (e == null || !e.BlocksNormalSummonOfAdded) continue;
+                _noNormalSummonUntil[card.Id] = _duel.Turn + 1;
+                return;
+            }
+        }
         public void OnDirectAttack(ClientCard card) { }
         public void OnChaining(ClientCard card, int player) { }
 
@@ -968,6 +1017,7 @@ namespace WindBot.Agent
         private ZoneSnapshot PlanSnapshot()
         {
             ZoneSnapshot z = _zones.Snapshot();
+            foreach (var kv in _noNormalSummonUntil) if (_duel.Turn <= kv.Value) z.NoNormalSummon.Add(kv.Key);
             ClientField opp = _duel.Fields[1];
             if (opp == null || _duel.Fields[0] == null) return z;
             z.CanAttack = _duel.Turn > 1 && _duel.Player == 0 && _duel.Phase == DuelPhase.Main1;

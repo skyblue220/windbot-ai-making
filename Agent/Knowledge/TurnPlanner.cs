@@ -28,6 +28,8 @@ namespace WindBot.Agent.Knowledge
         public readonly List<OpponentMonster> OpponentMonsters = new List<OpponentMonster>();
         /// <summary>Sum of the Ranks of the Xyz monsters in the opponent's GY (F0's ATK).</summary>
         public int OpponentGraveXyzRanks;
+        /// <summary>Cards an earlier effect forbids us to Normal Summon (Lightning Crash's searched name).</summary>
+        public readonly HashSet<int> NoNormalSummon = new HashSet<int>();
     }
 
     /// <summary>An opponent's monster as the planner's battle term sees it.</summary>
@@ -376,6 +378,7 @@ namespace WindBot.Agent.Knowledge
             _oppGraveRanks = z.OpponentGraveXyzRanks;
             _oppMons = z.OpponentMonsters.Select(x => x.Clone()).ToList();
             St s = new St { NS = z.NormalSummonAvailable };
+            foreach (int id in z.NoNormalSummon) s.NoNormalSummon.Add(id);
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
             foreach (var m in z.Monsters) s.Mons.Add(new Mon { Id = m.Key, Mats = m.Value });
             s.Spells.AddRange(z.Spells);
