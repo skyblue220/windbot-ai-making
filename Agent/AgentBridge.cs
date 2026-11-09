@@ -330,6 +330,39 @@ namespace WindBot.Agent
         /// Two or more interruptions offered against the same opponent play: order them by the bait seed
         /// (the one likely to be stopped and worth less first). One offered: only its stop chance is noted.
         /// </summary>
+        /// <summary>
+        /// Why an interruption should not answer the opponent's latest chain link, or null to use it:
+        /// - a negation that cannot stop that effect (Impermanence negates monster effects only; a field spell's effect stays);
+        /// - a removal that destroys up to one card per matching monster of ours (Plasma Hole: per Ryzeal Xyz)
+        ///   while the opponent shows too few face-up cards to make it count (int.partial_hold of what it could take).
+        /// </summary>
+        private string HoldReason(CardEntry c, EffectEntry e)
+        {
+            InterruptModel im = _planner.Interrupts;
+            ChainInfo link = _duel.CurrentChainInfo.LastOrDefault(x => x.ActivatePlayer == 1);
+            if (link != null && im.TypeName(c, e).Contains("무효"))
+            {
+                int tid = link.RelatedCard != null && link.RelatedCard.Id != 0 ? link.RelatedCard.Id : link.ActivateId;
+                CardEntry tc = tid != 0 ? _db.EnsureCard(tid, true) : null;
+                EffectEntry te = tc != null ? _db.FindEffect(tc, link.ActivateDescription) : null;
+                if (te != null && _db.CanHit(c, e, tc, te) == HitKind.None)
+                    return "이 효과(" + tc.Data.Name + " " + te.Index + ")는 무효로 막을 수 없음";
+            }
+            if (im.MultipliesByCondition(c, e))
+            {
+                CardLink cond = e.Links.FirstOrDefault(x => x.Role == "condition" && !x.Opponent && x.Targets.Count > 0);
+                if (cond != null)
+                {
+                    HashSet<int> ok = new HashSet<int>(cond.Targets);
+                    int most = _duel.Fields[0].MonsterZone.Count(m => m != null && m.IsFaceup() && ok.Contains(m.Id));
+                    int targets = OpponentFaceUp();
+                    if (most >= 2 && targets > 0 && targets < most && targets <= most * _values.Weights.BaseOf("int.partial_hold"))
+                        return "대상 " + targets + "장뿐 (최대 " + most + "장 가능)";
+                }
+            }
+            return null;
+        }
+
         private void BaitOrder(DecisionRequest r)
         {
             if (_bait == null) return;
@@ -528,7 +561,15 @@ namespace WindBot.Agent
                                 else o.Estimate = 2;
                             }
                             else if (opponentActed && _planner.Interrupts.IsInterrupt(c, e))
-                                o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                            {
+                                string skip = HoldReason(c, e);
+                                if (skip != null)
+                                {
+                                    o.Estimate = -1; // below passing: keep the card for a use that counts
+                                    o.Info = (o.Info ?? "") + " | 보류: " + skip;
+                                }
+                                else o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                            }
                         }
                         if (opponentActed) BaitOrder(r);
                         break;

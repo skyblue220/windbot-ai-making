@@ -61,6 +61,7 @@ namespace WindBot.Agent.Knowledge
             { "int.handtrap_bonus", 15 },
             { "int.chainproof_bonus", 5 },
             { "int.battle_factor", 0.5 },
+            { "int.partial_hold", 0.5 }, // a per-monster removal (Plasma Hole) waits while it would take at most this share of what it could
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
             { "battle.lethal", 10000 },  // planner: the end board deals lethal damage in the Battle Phase still ahead
