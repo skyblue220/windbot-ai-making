@@ -113,7 +113,16 @@ namespace WindBot.Agent.Knowledge
         public string NegateScope;
         /// <summary>What this interruption can respond to, read from its Lua condition (null when it is not a response effect).</summary>
         public ResponseFilter Response;
+        /// <summary>Activated as a chain link (card activation, ignition, trigger, quick effect): something a response can answer.</summary>
+        public bool Activates;
+        /// <summary>Where the card is when this effect is activated (MZONE, SZONE, FZONE, HAND, GRAVE, REMOVED); empty = not known.</summary>
+        public readonly List<string> SourceZones = new List<string>();
+        /// <summary>What the resolution does, as CATEGORY@LOCATION (e.g. TOHAND@DECK, SPECIAL_SUMMON@GRAVE) plus bare categories.</summary>
+        public readonly List<string> Moves = new List<string>();
     }
+
+    /// <summary>How an opponent's response affects one of our effects.</summary>
+    public enum HitKind { None, Negate, Disrupt }
 
     /// <summary>
     /// The kind of play an interruption can answer, read from its condition function:
@@ -461,6 +470,101 @@ namespace WindBot.Agent.Knowledge
             return f;
         }
 
+        /// <summary>Relation text of an effect link → the category the engine's operation info carries.</summary>
+        private static string MoveCategory(string relation)
+        {
+            if (relation.Contains("엑시즈 소재로") || relation.Contains("세트")) return null; // Overlay / SSet: no category
+            if (relation.Contains("특수 소환")) return "SPECIAL_SUMMON";
+            if (relation.Contains("패에 넣기")) return "TOHAND";
+            if (relation.Contains("묘지로")) return "TOGRAVE";
+            if (relation.Contains("덱으로")) return "TODECK";
+            if (relation.Contains("제외")) return "REMOVE";
+            if (relation.Contains("파괴")) return "DESTROY";
+            return null;
+        }
+
+        /// <summary>Activation zone, chain-ness and resolution moves of an effect: what an opponent's response checks.</summary>
+        private void ReadProfile(CardEntry c, EffectEntry e)
+        {
+            e.Activates = e.Kind == "카드의 발동" || e.Kind == "기동 효과" || e.Kind == "유발 즉시 효과" || e.Kind.StartsWith("유발 효과");
+            if (e.Kind == "카드의 발동") e.SourceZones.Add(IsMonster(c.Data) ? "HAND" : IsType(c.Data, "TYPE_FIELD") ? "FZONE" : "SZONE");
+            else if (e.Range != null) e.SourceZones.AddRange(e.Range.Split('|').Where(x => x.Length > 0));
+            else if (e.Events.Any(x => x.Contains("SUMMON_SUCCESS") || x == "FLIP")) e.SourceZones.Add("MZONE");
+            else if (e.Events.Any(x => x.Contains("TO_GRAVE"))) e.SourceZones.Add("GRAVE");
+            else if (e.Events.Any(x => x == "REMOVE")) e.SourceZones.Add("REMOVED");
+            else if (e.Events.Any(x => x == "TO_HAND")) e.SourceZones.Add("HAND");
+            foreach (string cat in e.Categories) if (!e.Moves.Contains(cat)) e.Moves.Add(cat);
+            foreach (CardLink l in e.Links)
+            {
+                if (l.Role != "effect" || l.Relation.StartsWith("코스트")) continue;
+                string cat = MoveCategory(l.Relation);
+                if (cat == null) continue;
+                foreach (string loc in l.Location.Split('|'))
+                {
+                    string key = cat + "@" + loc.Trim();
+                    if (!e.Moves.Contains(key)) e.Moves.Add(key);
+                }
+            }
+        }
+
+        private static readonly HashSet<string> FieldZones = new HashSet<string> { "ONFIELD", "MZONE", "SZONE", "FZONE", "PZONE" };
+
+        /// <summary>
+        /// Can the response <paramref name="theirs"/> (of card <paramref name="their"/>) answer our effect <paramref name="ours"/>?
+        /// Negate = the effect is negated; Disrupt = the response fires and hits the card or the board, but the effect still resolves
+        /// (Ghost Ogre destroys the activating card). Unknown parts (no activation zone read) count as hit: the safe guess.
+        /// </summary>
+        public HitKind CanHit(CardEntry their, EffectEntry theirs, CardEntry our, EffectEntry ours)
+        {
+            ResponseFilter f = theirs.Response;
+            if (f == null || !ours.Activates) return HitKind.None;
+            if (f.Timing == "summons") return HitKind.None; // Nibiru answers a count of summons, not an effect
+            // A face-up pick answers a play only when it can be activated at will (Impermanence); a trigger
+            // (Aggregator ③ on going to the GY, Ray Lancer at the battle phase) fires on its own event, not in response.
+            if (f.Timing == "target" && theirs.Kind.StartsWith("유발 효과")) return HitKind.None;
+
+            bool monster = IsMonster(our.Data);
+            if (f.EffectType == "monster" && !monster) return HitKind.None;
+            if (f.EffectType == "spelltrap" && monster) return HitKind.None;
+            if (f.NoCardActivation && ours.Kind == "카드의 발동") return HitKind.None;
+
+            if (f.From.Count > 0 && ours.SourceZones.Count > 0)
+            {
+                bool inZone = ours.SourceZones.Any(z => f.From.Contains(z) || (f.From.Contains("ONFIELD") && FieldZones.Contains(z)));
+                if (!inZone) return HitKind.None;
+            }
+            // A pick-a-face-up-card response (Impermanence) negates a monster on the field; a card activated from the hand is not there yet.
+            if (f.Timing == "target" && ours.Kind == "카드의 발동" && monster) return HitKind.None;
+
+            if (f.Categories.Count > 0)
+            {
+                bool any = f.Categories.Any(req => req.Contains("@") ? ours.Moves.Contains(req) : ours.Moves.Any(m => m == req || m.StartsWith(req + "@")));
+                if (!any) return HitKind.None;
+            }
+            bool negates = theirs.NegateScope != null || theirs.Categories.Contains("NEGATE") || theirs.Categories.Contains("DISABLE") || f.DeclaredName;
+            return negates ? HitKind.Negate : HitKind.Disrupt;
+        }
+
+        /// <summary>Cards on the other side whose responses can answer this effect, e.g. "Ash Blossom & Joyous Spring ×2(무효)".</summary>
+        public List<string> Hitters(CardEntry c, EffectEntry e)
+        {
+            List<string> r = new List<string>();
+            foreach (CardEntry o in Cards.Values)
+            {
+                int copies = c.Opponent ? (o.Opponent ? 0 : o.CopiesInDeck) : (o.Opponent ? Math.Max(1, o.OpponentCopies) : o.OpponentCopies);
+                if (copies <= 0) continue;
+                HitKind best = HitKind.None;
+                foreach (EffectEntry oe in o.Effects)
+                {
+                    HitKind h = CanHit(o, oe, c, e);
+                    if (h == HitKind.Negate || (h == HitKind.Disrupt && best == HitKind.None)) best = h;
+                }
+                bool named = best == HitKind.Negate && o.Effects.Any(x => x.Response != null && x.Response.DeclaredName);
+                if (best != HitKind.None) r.Add(o.Data.Name + " ×" + copies + (named ? "(무효, 이름 선언)" : best == HitKind.Negate ? "(무효)" : "(방해)"));
+            }
+            return r;
+        }
+
         private void BuildEffects(CardEntry c, LuaScript s)
         {
             int index = 0;
@@ -508,6 +612,7 @@ namespace WindBot.Agent.Knowledge
                 e.NegateScope = ReadNegateScope(e, def, s);
                 e.Response = ReadResponse(e, def, s);
                 AddLinks(e, s, def);
+                ReadProfile(c, e);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
                     if (f != null && f.StartsWith("(inline)")) e.Unresolved.Add("inline function: " + f.Substring(9));
                 c.Effects.Add(e);
@@ -1152,6 +1257,12 @@ namespace WindBot.Agent.Knowledge
                     if (e.Limit != null) sb.AppendLine("  - 횟수: 1턴 " + e.Limit.Count + "번" + (e.Limit.Oath ? " ('발동' 제약: 발동 무효되면 다시 발동 가능)" : " ('사용' 제약: 발동 무효돼도 소비)") + (e.Limit.PerDuel ? ", 듀얼 중" : "") + ", 키 " + e.Limit.Key);
                     if (e.DetachCount > 0) sb.AppendLine("  - 엑시즈 소재 제거: " + e.DetachCount + "개 (필드에 그만큼 소재가 있어야 함)");
                     if (e.Response != null) sb.AppendLine("  - 응답 대상: " + ResponseText(e.Response));
+                    if (e.Activates)
+                    {
+                        List<string> hit = Hitters(c, e);
+                        sb.AppendLine("  - 발동 위치: " + (e.SourceZones.Count > 0 ? String.Join("/", e.SourceZones.ToArray()) : "모름") + (e.Moves.Count > 0 ? " / 처리: " + String.Join(", ", e.Moves.ToArray()) : ""));
+                        sb.AppendLine("  - " + (c.Opponent ? "막을 수 있는 우리 카드: " : "막을 수 있는 상대 카드: ") + (hit.Count > 0 ? String.Join(", ", hit.ToArray()) : "없음"));
+                    }
                     if (e.NegateScope != null) sb.AppendLine("  - 무효 대상: " + (e.NegateScope == "monster" ? "몬스터 효과" : e.NegateScope == "spelltrap" ? "마법·함정 효과" : "전부"));
                     if (e.BlocksNormalSummonOfAdded) sb.AppendLine("  - 제약: 이 효과로 패에 넣은 카드는 일반 소환할 수 없음");
                     if (e.Guard != null) sb.AppendLine("  - 전투: " + e.Guard.Describe());
