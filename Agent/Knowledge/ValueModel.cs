@@ -48,6 +48,8 @@ namespace WindBot.Agent.Knowledge
             { "int.scope.all", 1.0 },        // negation target (read from Lua): monster and spell/trap effects
             { "int.scope.monster", 0.95 },   // monster effects only: most of what an opponent's turn runs on
             { "int.scope.spelltrap", 0.75 }, // spell / trap effects only
+            { "bait.draw_out", 1.0 },        // bait ordering: worth of drawing out a negation that would also hit a kept interruption
+            { "bait.hold", 1.0 },            // bait ordering: scale on "the opponent holds a card that can stop it" (learnable)
             { "int.negate_effect", 40 },
             { "int.negate_activation", 38 },
             { "int.negate_effect_destroy", 48 },

@@ -63,6 +63,7 @@ namespace WindBot.Agent
         private GameCardDb _db;
         private ValueModel _values;
         private TurnPlanner _planner;
+        private BaitModel _bait;
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
         private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
         private readonly List<PlanMove> _planAhead = new List<PlanMove>();
@@ -121,6 +122,7 @@ namespace WindBot.Agent
                 }
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
                 _planner = new TurnPlanner(_db, _values.Weights);
+                _bait = new BaitModel(_db, _values.Weights);
                 ValueModel vm = _values;
                 _planner.NextTurnValue = id => vm.ValueNextTurn(id, _zones).Value;
                 ValuePolicy vp = _policy as ValuePolicy;
@@ -321,6 +323,85 @@ namespace WindBot.Agent
 
         private const double OpponentTargetBase = 50;
 
+        /// <summary>
+        /// Two or more interruptions offered against the same opponent play: order them by the bait seed
+        /// (the one likely to be stopped and worth less first). One offered: only its stop chance is noted.
+        /// </summary>
+        private void BaitOrder(DecisionRequest r)
+        {
+            if (_bait == null) return;
+            List<DecisionOption> opts = new List<DecisionOption>();
+            List<KeyValuePair<CardEntry, EffectEntry>> fx = new List<KeyValuePair<CardEntry, EffectEntry>>();
+            foreach (DecisionOption o in r.Options)
+            {
+                if (o.Action == "Pass" || double.IsNaN(o.Estimate) || o.Estimate <= 0) continue;
+                CardEntry c = _db.Get(o.CardId);
+                EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
+                if (c == null || e == null || !_planner.Interrupts.IsInterrupt(c, e)) continue;
+                opts.Add(o);
+                fx.Add(new KeyValuePair<CardEntry, EffectEntry>(c, e));
+            }
+            if (opts.Count == 0) return;
+            OpponentPool pool = OpponentPoolNow();
+            if (opts.Count == 1)
+            {
+                opts[0].Info = (opts[0].Info ?? "") + " | 막힐 확률 " + _bait.StopChance(pool, fx[0]).ToString("0.##");
+                return;
+            }
+            List<string> notes = new List<string>();
+            List<double> est = _bait.Order(pool, fx, opts.Select(o => o.Estimate).ToList(), notes);
+            for (int i = 0; i < opts.Count; ++i)
+            {
+                opts[i].Estimate = est[i];
+                opts[i].Info = (opts[i].Info ?? "") + " | " + notes[i];
+            }
+        }
+
+        /// <summary>The opponent's cards as we see them now: hidden pool, cards they can use right now, seen copies, face-up board.</summary>
+        private OpponentPool OpponentPoolNow()
+        {
+            ClientField f = _duel.Fields[1];
+            OpponentPool p = new OpponentPool();
+            int faceDown = 0, setSpells = 0;
+            foreach (ClientCard c in f.MonsterZone)
+            {
+                if (c == null) continue;
+                if (c.IsFacedown()) { faceDown++; continue; }
+                p.Board.Add(new KeyValuePair<int, int>(c.Id, c.Overlays.Count));
+                AddSeen(p, c.Id);
+            }
+            foreach (ClientCard c in f.SpellZone)
+            {
+                if (c == null) continue;
+                if (c.IsFacedown()) { faceDown++; setSpells++; continue; }
+                p.Board.Add(new KeyValuePair<int, int>(c.Id, 0));
+                AddSeen(p, c.Id);
+            }
+            foreach (ClientCard c in f.Graveyard) if (c != null) AddSeen(p, c.Id);
+            foreach (ClientCard c in f.Banished) if (c != null && c.IsFaceup()) AddSeen(p, c.Id);
+            foreach (ClientCard c in f.Hand) if (c != null && c.Id != 0) AddSeen(p, c.Id); // revealed hand cards are known, not hidden
+            int knownHand = f.Hand.Count(c => c != null && c.Id != 0);
+            int deck = f.Deck != null ? f.Deck.Count : 0;
+            p.Hidden = deck + f.Hand.Count - knownHand + faceDown;
+            p.Hand = f.Hand.Count - knownHand;
+            p.Set = setSpells;
+            p.TheirTurn = _duel.Player == 1;
+            p.FieldEmpty = f.GetMonsters().Count == 0 && f.GetSpells().Count == 0;
+            p.Exhausted = e =>
+            {
+                KeyUsage u = _db.PeekUsage(1, e);
+                return u != null && e.Limit != null && u.Used >= e.Limit.Count;
+            };
+            return p;
+        }
+
+        private static void AddSeen(OpponentPool p, int id)
+        {
+            if (id == 0) return;
+            int n;
+            p.Seen[id] = p.Seen.TryGetValue(id, out n) ? n + 1 : 1;
+        }
+
         /// <summary>Face-up cards on the opponent's field (monster and spell/trap zones, field zone included).</summary>
         private int OpponentFaceUp()
         {
@@ -419,6 +500,7 @@ namespace WindBot.Agent
                             else if (opponentActed && _planner.Interrupts.IsInterrupt(c, e))
                                 o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
                         }
+                        if (opponentActed) BaitOrder(r);
                         break;
                     }
 

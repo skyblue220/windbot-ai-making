@@ -169,8 +169,67 @@ namespace WindBot.Agent
                 sb.AppendLine();
                 sb.Append(DescribeInterrupts(db, LoadWeights()));
             }
+            if (Config.GetString("AgentOpponentDeck") != null)
+            {
+                // Bait test: the opponent's whole deck unseen, AgentDbOppHand (default 5) + AgentDbOppSet cards usable now.
+                ValueWeights w = LoadWeights();
+                OpponentPool pool = new OpponentPool();
+                int oppHand = Config.GetInt("AgentDbOppHand", 5), oppSet = Config.GetInt("AgentDbOppSet", 0);
+                pool.Hidden = db.Cards.Values.Where(x => !db.IsExtraDeckCard(x.Data)).Sum(x => x.OpponentCopies);
+                pool.Hand = oppHand;
+                pool.Set = oppSet;
+                pool.TheirTurn = Config.GetBool("AgentDbOppTurn", true);
+                sb.AppendLine("# 미끼 시험 (상대 숨은 카드 " + pool.Hidden + "장, 손패 " + pool.Hand + "장, 세트 " + pool.Set + "장, 본 카드 없음)");
+                sb.AppendLine();
+                sb.Append(DescribeBait(db, w, pool, Config.GetString("AgentDbBait")));
+            }
             File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
             Logger.WriteLine("Card DB: " + db.Cards.Count + " cards, constants " + db.ConstantCount + ", script dirs " + db.ScriptDirCount + " → " + Path.GetFullPath(outPath));
+        }
+
+        /// <summary>
+        /// Stop chance of each of our interruptions that is activated (a chain link), and, for AgentDbBait=id:effect,id:effect,...,
+        /// the bait order of that set offered together.
+        /// </summary>
+        public static string DescribeBait(GameCardDb db, ValueWeights w, OpponentPool pool, string set)
+        {
+            InterruptModel im = new InterruptModel(w);
+            BaitModel bait = new BaitModel(db, w);
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("| 카드 | 효과 | 가치(필드) | 막힐 확률 | 막을 수 있는 상대 카드 |");
+            sb.AppendLine("|---|---|---|---|---|");
+            foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent && x.CopiesInDeck > 0).OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (!e.Activates || !im.IsInterrupt(c, e) || im.TypeValue(c, e) <= 0) continue;
+                    double p = bait.StopChance(pool, new KeyValuePair<CardEntry, EffectEntry>(c, e));
+                    sb.AppendLine("| " + c.Data.Name + " | " + e.Index + " | " + im.Value(c, e, false).ToString("0.#") + " | " + p.ToString("0.##")
+                        + " | " + String.Join(", ", db.Hitters(c, e).Where(x => x.Contains("(무효")).ToArray()) + " |");
+                }
+            sb.AppendLine();
+            if (set == null) return sb.ToString();
+
+            List<KeyValuePair<CardEntry, EffectEntry>> fx = new List<KeyValuePair<CardEntry, EffectEntry>>();
+            List<double> values = new List<double>();
+            foreach (string item in set.Split(','))
+            {
+                string[] kv = item.Split(':');
+                int id, idx;
+                if (kv.Length != 2 || !int.TryParse(kv[0], out id) || !int.TryParse(kv[1], out idx)) continue;
+                CardEntry c = db.Get(id);
+                EffectEntry e = c != null ? c.Effects.FirstOrDefault(x => x.Index == idx) : null;
+                if (e == null) continue;
+                fx.Add(new KeyValuePair<CardEntry, EffectEntry>(c, e));
+                values.Add(im.Value(c, e, (e.Range != null && e.Range.Contains("HAND")) || c.TrapActInHand));
+            }
+            if (fx.Count < 2) return sb.ToString();
+            List<string> notes = new List<string>();
+            List<double> est = bait.Order(pool, fx, values, notes);
+            sb.AppendLine("## 함께 제시된 방해의 순서 (높을수록 먼저)");
+            foreach (int i in Enumerable.Range(0, fx.Count).OrderByDescending(i => est[i]))
+                sb.AppendLine("- " + fx[i].Key.Data.Name + " 효과 " + fx[i].Value.Index + ": " + est[i].ToString("0.#") + " (" + notes[i] + ")");
+            sb.AppendLine();
+            return sb.ToString();
         }
 
         /// <summary>Interruption value of every effect in the deck that can be used on the opponent's turn.</summary>

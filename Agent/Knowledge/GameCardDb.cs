@@ -937,6 +937,10 @@ namespace WindBot.Agent.Knowledge
         };
 
         private bool IsType(CardData d, string name) { return (d.Type & Const(name)) != 0; }
+        /// <summary>Fusion / Synchro / Xyz / Link: lives in the Extra Deck, never in the hand.</summary>
+        public bool IsMonsterCard(CardData d) { return IsMonster(d); }
+        public bool IsQuickPlay(CardData d) { return IsType(d, "TYPE_SPELL") && IsType(d, "TYPE_QUICKPLAY"); }
+        public bool IsExtraDeckCard(CardData d) { return IsType(d, "TYPE_FUSION") || IsType(d, "TYPE_SYNCHRO") || IsType(d, "TYPE_XYZ") || IsType(d, "TYPE_LINK"); }
         private bool IsMonster(CardData d) { return IsType(d, "TYPE_MONSTER"); }
 
         /// <summary>Static predicates are checked against cdb data; runtime ones (IsFaceup, IsAbleTo...) are ignored here.</summary>
