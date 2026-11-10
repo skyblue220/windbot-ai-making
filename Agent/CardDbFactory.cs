@@ -166,6 +166,8 @@ namespace WindBot.Agent
                 TurnPlanner planner = new TurnPlanner(db, model.Weights);
                 planner.MillisPerPlan = Config.GetInt("AgentDbPlanMillis", (int)planner.MillisPerPlan);
                 planner.BudgetPerFirstMove = Config.GetInt("AgentDbPlanBudget", planner.BudgetPerFirstMove);
+                planner.Threads = Config.GetInt("AgentDbPlanThreads", planner.Threads);
+                planner.MemoCap = Config.GetInt("AgentDbPlanMemo", planner.MemoCap);
                 planner.NextTurnValue = id => model.ValueNextTurn(id, zones).Value;
                 sb.Append(DescribePlan(planner, zones));
                 sb.AppendLine();

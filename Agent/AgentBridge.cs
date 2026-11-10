@@ -70,6 +70,10 @@ namespace WindBot.Agent
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
         private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
         private readonly List<PlanMove> _planAhead = new List<PlanMove>();
+        /// <summary>Turn whose long first plan is done: the first main-phase decision of a turn searches long, the re-plans after it short.</summary>
+        private int _longPlanTurn = -1;
+        private static readonly long PlanMillisFirst = Config.GetInt("AgentPlanMillisFirst", 20000);
+        private static readonly long PlanMillis = Config.GetInt("AgentPlanMillis", 4000);
         /// <summary>Cards we may not Normal Summon, with the last turn the lock lasts (Lightning Crash).</summary>
         private readonly Dictionary<int, int> _noNormalSummonUntil = new Dictionary<int, int>();
         private const double PlanTargetBonus = 1000;
@@ -261,6 +265,12 @@ namespace WindBot.Agent
             _optionPlans.Clear();
             if (r.Kind == RequestKind.Idle && _planner != null && _duel.Player == 0)
             {
+                bool firstOfTurn = _longPlanTurn != _duel.Turn;
+                _longPlanTurn = _duel.Turn;
+                _planner.MillisPerPlan = firstOfTurn ? PlanMillisFirst : PlanMillis;
+                _planner.BudgetPerFirstMove = 5000000; // time is the limit now
+                // The line taken before is searched first, so a short re-plan keeps what the long one found.
+                _planner.Hint = !firstOfTurn && _planAhead.Count > 0 ? new List<PlanMove>(_planAhead) : null;
                 try { _planner.Plan(PlanSnapshot(), out byFirst, out stop); }
                 catch (Exception ex) { _log.Error("planner", ex.ToString()); byFirst = null; }
             }

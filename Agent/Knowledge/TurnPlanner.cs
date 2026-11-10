@@ -229,10 +229,27 @@ namespace WindBot.Agent.Knowledge
         private readonly ValueWeights _w;
         private readonly InterruptModel _int;
         private int _budget;
-        private Dictionary<string, PlanResult> _memo;
+        /// <summary>Finished sub-results by depth and state; one table shared by the workers of a parallel plan.</summary>
+        private sealed class MemoTable
+        {
+            public readonly System.Collections.Concurrent.ConcurrentDictionary<string, PlanResult> D =
+                new System.Collections.Concurrent.ConcurrentDictionary<string, PlanResult>(StringComparer.Ordinal);
+            public int Count;
+        }
+        private MemoTable _memo;
         public int BudgetPerFirstMove = 40000;
         public int MaxDepth = 16; // main moves per turn (a Duo Drive + 2 Detonator line already takes about 10)
         public long MillisPerPlan = 4000; // wall-clock cap for one Plan call, shared evenly by the first moves left (results past it count as truncated)
+        /// <summary>First moves searched at once, each by its own worker planner (1 = one after another on this thread).</summary>
+        public int Threads = Math.Max(1, Math.Min(16, Environment.ProcessorCount - 2));
+        /// <summary>Most memo entries one plan keeps (shared by its workers): bounds memory in the 32-bit process.</summary>
+        public int MemoCap = 600000; // about 640 MB at the peak of a 30 s parallel plan
+        /// <summary>
+        /// The plan taken before (its moves, the ones already made included). Searched first wherever the state
+        /// still follows it, so a short re-plan always re-reads that line in full instead of dropping it when time runs out.
+        /// </summary>
+        public List<PlanMove> Hint;
+        private List<PlanMove> _hint;
         private readonly System.Diagnostics.Stopwatch _clock = new System.Diagnostics.Stopwatch();
         private long _moveDeadline;
 
@@ -436,7 +453,7 @@ namespace WindBot.Agent.Knowledge
         /// <summary>Best plan from this state, and the best plan for each possible first move.</summary>
         public PlanResult Plan(ZoneSnapshot z, out List<PlanResult> byFirstMove, out PlanResult stop)
         {
-            _memo = new Dictionary<string, PlanResult>(StringComparer.Ordinal);
+            _memo = new MemoTable();
             _next.Clear();
             _drawWorth.Clear();
             St s = FromSnapshot(z, _db);
@@ -444,6 +461,13 @@ namespace WindBot.Agent.Knowledge
             byFirstMove = new List<PlanResult>();
             PlanResult best = stop;
             var firstMoves = Moves(s, 0).ToList();
+            int hintAt = HintStart(firstMoves);
+            if (Threads > 1 && firstMoves.Count > 0)
+            {
+                PlanParallel(z, firstMoves, hintAt, byFirstMove);
+                foreach (PlanResult r in byFirstMove) if (r.Value > best.Value) best = r;
+                return best;
+            }
             System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
             for (int i = 0; i < firstMoves.Count; ++i)
             {
@@ -454,12 +478,126 @@ namespace WindBot.Agent.Knowledge
                 _budget = BudgetPerFirstMove;
                 _clock.Restart();
                 _moveDeadline = Math.Max(50, (MillisPerPlan - total.ElapsedMilliseconds) / (firstMoves.Count - i));
-                PlanResult rest = Search(mv.Value, 1);
+                PlanResult rest = Search(mv.Value, 1, HintNext(hintAt, mv.Key));
                 PlanResult r = Combine(mv.Key, rest, 0);
                 byFirstMove.Add(r);
                 if (r.Value > best.Value) best = r;
             }
             return best;
+        }
+
+        /// <summary>
+        /// The first two moves are expanded here; each (first, second) pair is one unit, searched by a worker planner
+        /// on its own thread, Threads at a time, all sharing one memo table. A unit gets the time left over the
+        /// waves of units still to start (as the one-thread loop does per first move). A first move's plan is the
+        /// best of stopping after it and its units.
+        /// </summary>
+        private void PlanParallel(ZoneSnapshot z, List<KeyValuePair<List<PlanMove>, St>> firstMoves, int hintAt, List<PlanResult> byFirstMove)
+        {
+            var units = new List<Tuple<int, KeyValuePair<List<PlanMove>, St>, int>>(); // first move, second move, hint position after it
+            var afterFirst = new List<PlanResult>();
+            for (int i = 0; i < firstMoves.Count; ++i)
+            {
+                St s1 = firstMoves[i].Value;
+                afterFirst.Add(StopResult(s1));
+                int h1 = HintNext(hintAt, firstMoves[i].Key);
+                if (MaxDepth <= 1) continue;
+                var second = Moves(s1, 1).ToList();
+                if (h1 >= 0)
+                {
+                    int h = second.FindIndex(mv => HintMatches(h1, mv.Key));
+                    if (h > 0) { var f = second[h]; second.RemoveAt(h); second.Insert(0, f); }
+                }
+                foreach (var mv in second) units.Add(Tuple.Create(i, mv, HintNext(h1, mv.Key)));
+            }
+            // Hinted units first, so they start with the most time.
+            units = units.OrderByDescending(u => u.Item3 >= 0).ToList();
+
+            PlanResult[] got = new PlanResult[units.Count];
+            object gate = new object();
+            Func<int, double> next = NextTurnValue;
+            Func<int, double> nextLocked = null;
+            if (next != null) nextLocked = id => { lock (gate) return next(id); };
+            MemoTable memo = _memo;
+            System.Diagnostics.Stopwatch total = System.Diagnostics.Stopwatch.StartNew();
+            int started = 0;
+            Exception failure = null;
+            var workers = new System.Threading.ThreadLocal<TurnPlanner>(() =>
+            {
+                TurnPlanner w = new TurnPlanner(_db, _w);
+                w.BudgetPerFirstMove = BudgetPerFirstMove;
+                w.MaxDepth = MaxDepth;
+                w.Threads = 1;
+                w.MemoCap = MemoCap;
+                w.Hint = Hint;
+                w._hint = Hint;
+                w.NextTurnValue = nextLocked;
+                w._memo = memo;
+                w.FromSnapshot(z, _db); // the opponent's board, LP and targets for this worker
+                return w;
+            });
+            System.Threading.Tasks.Parallel.For(0, units.Count, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Threads }, u =>
+            {
+                try
+                {
+                    int order = System.Threading.Interlocked.Increment(ref started) - 1;
+                    int wavesLeft = (units.Count - order + Threads - 1) / Threads;
+                    long millis = Math.Max(50, (MillisPerPlan - total.ElapsedMilliseconds) / Math.Max(1, wavesLeft));
+                    TurnPlanner w = workers.Value;
+                    w._budget = BudgetPerFirstMove;
+                    w._clock.Restart();
+                    w._moveDeadline = millis;
+                    var unit = units[u];
+                    got[u] = w.Combine(unit.Item2.Key, w.Search(unit.Item2.Value, 2, unit.Item3), 1);
+                }
+                catch (Exception ex) { lock (gate) failure = ex; }
+            });
+            workers.Dispose();
+            if (failure != null) throw new InvalidOperationException("parallel plan failed", failure);
+
+            for (int i = 0; i < firstMoves.Count; ++i)
+            {
+                PlanResult rest = afterFirst[i];
+                bool truncated = false;
+                for (int u = 0; u < units.Count; ++u)
+                {
+                    if (units[u].Item1 != i || got[u] == null) continue;
+                    truncated |= got[u].Truncated;
+                    if (got[u].Value > rest.Value) rest = got[u];
+                }
+                PlanResult r = Combine(firstMoves[i].Key, rest, 0);
+                r.Truncated = truncated;
+                byFirstMove.Add(r);
+            }
+        }
+
+        // ---------------------------------------------------------- plan hint (principal line first)
+
+        private static string StepKey(PlanMove m) { return m.Kind + "|" + m.CardId + "|" + m.EffectIndex + "|" + m.TargetId; }
+
+        /// <summary>Hint position the first moves continue from: the earliest step some first move starts with (the steps before it are done).</summary>
+        private int HintStart(List<KeyValuePair<List<PlanMove>, St>> firstMoves)
+        {
+            _hint = Hint;
+            if (_hint == null || _hint.Count == 0) return -1;
+            for (int p = 0; p < _hint.Count; ++p)
+                foreach (var mv in firstMoves)
+                    if (HintMatches(p, mv.Key)) return p;
+            return -1;
+        }
+
+        private bool HintMatches(int at, List<PlanMove> steps)
+        {
+            if (at < 0 || _hint == null || at + steps.Count > _hint.Count) return false;
+            for (int i = 0; i < steps.Count; ++i)
+                if (StepKey(_hint[at + i]) != StepKey(steps[i])) return false;
+            return true;
+        }
+
+        /// <summary>Hint position after taking these steps, or -1 when they leave the hinted line.</summary>
+        private int HintNext(int at, List<PlanMove> steps)
+        {
+            return HintMatches(at, steps) ? at + steps.Count : -1;
         }
 
         public bool Exhausted { get { return _budget <= 0; } }
@@ -475,20 +613,28 @@ namespace WindBot.Agent.Knowledge
 
         // ---------------------------------------------------------- search
 
-        private PlanResult Search(St s, int k)
+        private PlanResult Search(St s, int k, int hintAt = -1)
         {
             string key = k + "#" + s.Key();
             PlanResult cached;
-            if (_memo.TryGetValue(key, out cached)) return cached;
+            if (_memo.D.TryGetValue(key, out cached)) return cached;
             PlanResult best = StopResult(s);
             bool truncated = false;
             if (k < MaxDepth)
             {
                 if (--_budget > 0 && _clock.ElapsedMilliseconds < _moveDeadline)
                 {
-                    foreach (var mv in Moves(s, k))
+                    var moves = Moves(s, k).ToList();
+                    if (hintAt >= 0)
                     {
-                        PlanResult sub = Search(mv.Value, k + 1);
+                        // The hinted step first, while the budget is fresh.
+                        int h = moves.FindIndex(mv => HintMatches(hintAt, mv.Key));
+                        if (h > 0) { var first = moves[h]; moves.RemoveAt(h); moves.Insert(0, first); }
+                        if (h < 0) hintAt = -1;
+                    }
+                    foreach (var mv in moves)
+                    {
+                        PlanResult sub = Search(mv.Value, k + 1, HintNext(hintAt, mv.Key));
                         truncated |= sub.Truncated;
                         PlanResult r = Combine(mv.Key, sub, k);
                         if (r.Value > best.Value) best = r;
@@ -497,7 +643,7 @@ namespace WindBot.Agent.Knowledge
                 else truncated = Moves(s, k).Any();
             }
             best.Truncated = truncated;
-            if (!truncated) _memo[key] = best;
+            if (!truncated && _memo.Count < MemoCap && _memo.D.TryAdd(key, best)) System.Threading.Interlocked.Increment(ref _memo.Count);
             return best;
         }
 
