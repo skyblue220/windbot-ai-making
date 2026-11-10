@@ -164,6 +164,8 @@ namespace WindBot.Agent
                 sb.Append(DescribeValues(db, model, zones));
                 sb.AppendLine("## 턴 계획 (흐름 + 턴 종료 방해 − 효율)");
                 TurnPlanner planner = new TurnPlanner(db, model.Weights);
+                planner.MillisPerPlan = Config.GetInt("AgentDbPlanMillis", (int)planner.MillisPerPlan);
+                planner.BudgetPerFirstMove = Config.GetInt("AgentDbPlanBudget", planner.BudgetPerFirstMove);
                 planner.NextTurnValue = id => model.ValueNextTurn(id, zones).Value;
                 sb.Append(DescribePlan(planner, zones));
                 sb.AppendLine();
