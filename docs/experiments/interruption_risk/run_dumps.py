@@ -42,7 +42,10 @@ boards = {
  "B_end_hit": ("", L(X(DUO, 0), X(DET, 3)), L(M104), L(CROSS)),
 }
 
-procs = {}
+# One dump at a time: the planner has a time budget per plan, so parallel runs search less and give lower values
+# (found 2026-11-11; results.json from 2026-11-10 was made with parallel runs).
+num = r"(-?[\d.]+)"
+res = {}
 for k, (h, m, g, sp) in boards.items():
     args = [os.path.join(PI, "WindBot", "WindBot.exe"), "AssetPath=./WindBot", "DbPaths=" + B,
             "AgentDbDump=AI_Ryzeal", "AgentOpponentDeck=AI_Ryzeal", "AgentDbHand=" + (h or "0"),
@@ -50,12 +53,7 @@ for k, (h, m, g, sp) in boards.items():
     if m: args.append("AgentDbMonsters=" + m)
     if g: args.append("AgentDbGrave=" + g)
     if sp: args.append("AgentDbSpells=" + sp)
-    procs[k] = subprocess.Popen(args, cwd=PI, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-num = r"(-?[\d.]+)"
-res = {}
-for k, p in procs.items():
-    p.wait(timeout=300)
+    subprocess.run(args, cwd=PI, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
     txt = open(os.path.join(OUT, "r_%s.md" % k), encoding="utf-8").read()
     best = re.search(r"최선 계획: " + num + r" \(흐름 " + num + r" \+ 턴 종료 방해 " + num + r" \+ 후속 " + num + r"(?: − 효율 " + num + r"장)?\)(.*)", txt)
     stop = re.search(r"아무것도 안 하고 턴 종료: " + num + r" \(흐름 " + num + r" \+ 턴 종료 방해 " + num + r" \+ 후속 " + num, txt)

@@ -1,0 +1,189 @@
+{
+ "ice": {
+  "plan": 346.7,
+  "terms": "흐름 113.5 + 턴 종료 방해 156.8 + 후속 76.4 − 효율 1장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Ice Ryzeal, Star Ryzeal] → Ryzeal Duo Drive 기동(3) [떼기: Ice Ryzeal, Star Ryzeal] → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Ryzeal Detonator 유발(2) +소재: Eclipse Twins → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Ice Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Eclipse Twins(Ryzeal Detonator 소재, 상대 턴 묘지 효과)",
+  "ice_chain": 101.6,
+  "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
+  "extra_cost_order": [
+   "Eclipse Twins",
+   "Mereologic Aggregator",
+   "Ryzeal Duo Drive",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "ice_fu0": {
+  "plan": 342.8,
+  "terms": "흐름 128.2 + 턴 종료 방해 173.2 + 후속 41.3 − 효율 1장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Star Ryzeal → Ryzeal Duo Drive 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Star Ryzeal 룰 특수 소환 [떼기: Sword Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Ryzeal Detonator 엑시즈 소환 [소재: Star Ryzeal, Ext Ryzeal] → Ryzeal Detonator 유발(2) +소재: Sword Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Ice Ryzeal, Star Ryzeal] → Ryzeal Cross → Ryzeal Cross 필드 마법 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Ice Ryzeal] +드로우 | 방해: Ryzeal Plasma Hole ×2, Ryzeal Cross, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)",
+  "ice_chain": 85.9,
+  "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지) 20×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
+  "extra_cost_order": [
+   "Eclipse Twins",
+   "Ryzeal Duo Drive",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Mereologic Aggregator",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "ice_duo": {
+  "plan": 385.5,
+  "terms": "흐름 120.2 + 턴 종료 방해 221.8 + 후속 43.6 − 효율 2장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Ice Ryzeal, Star Ryzeal] → Ryzeal Duo Drive 유발(2) → Ryzeal Duo Drive 기동(3) [떼기: Ice Ryzeal, Star Ryzeal] → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Node Ryzeal 기동(2) [코스트: Ryzeal Duo Drive] → Ice Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Sword Ryzeal, Ext Ryzeal] → Ryzeal Detonator 유발(2) +소재: Eclipse Twins → Traptrix Rafflesia 엑시즈 소환 [소재: Node Ryzeal, Ice Ryzeal] → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Ryzeal Duo Drive] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5), Eclipse Twins(Ryzeal Detonator 소재, 상대 턴 묘지 효과)",
+  "ice_chain": 101.6,
+  "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
+  "extra_cost_order": [
+   "Eclipse Twins",
+   "Mereologic Aggregator",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Ryzeal Duo Drive",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "ice_vs_det": {
+  "plan": 473.2,
+  "terms": "흐름 171.2 + 턴 종료 방해 154.7 + 후속 44.6 + 전투 102.6 − 효율 1장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Infernal Flame Banshee 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Ext Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Ext Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sword Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Ice Ryzeal → Node Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Node Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Sword Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과) | 전투: 공격 제약: 랭크 4 엑시즈만, Ryzeal Detonator → Ryzeal Detonator 파괴, Ryzeal Duo Drive 직접 2500, Infernal Flame Banshee 직접 1700",
+  "ice_chain": 101.6,
+  "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
+  "extra_cost_order": [
+   "Mereologic Aggregator",
+   "Eclipse Twins",
+   "Ryzeal Duo Drive",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "ice_vs_duo": {
+  "plan": 427.5,
+  "terms": "흐름 138.2 + 턴 종료 방해 156.8 + 후속 43.8 + 전투 88.8 − 효율 1장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Star Ryzeal → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Star Ryzeal 룰 특수 소환 [떼기: Sword Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Infernal Flame Banshee 기동(1) [떼기: Ice Ryzeal] → Ext Ryzeal → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Ext Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Sword Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Ext Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Ice Ryzeal → Ext Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Eclipse Twins → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Sword Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Eclipse Twins(Ryzeal Detonator 소재, 상대 턴 묘지 효과) | 전투: 공격 제약: 랭크 4 엑시즈만, Ryzeal Detonator → Ryzeal Duo Drive 파괴 500, Ryzeal Duo Drive 직접 2500, Infernal Flame Banshee 직접 1700",
+  "ice_chain": 101.6,
+  "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
+  "extra_cost_order": [
+   "Eclipse Twins",
+   "Ryzeal Duo Drive",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Mereologic Aggregator",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "agg_target": {
+  "plan": 263.5,
+  "terms": "흐름 97.8 + 턴 종료 방해 93.1 + 후속 0 + 전투 72.6 − 효율 1장",
+  "moves": "Star Ryzeal 룰 특수 소환 [떼기: Mereologic Aggregator] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Cross 세트 카드 발동 | 방해: Ryzeal Cross, Ryzeal Detonator(1), Ryzeal Detonator(3) | 전투: Ryzeal Detonator → Ryzeal Detonator 파괴, Star Ryzeal 직접 1800",
+  "extra_cost_order": [
+   "Mereologic Aggregator",
+   "Eclipse Twins",
+   "Ryzeal Duo Drive",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "agg_no_target": {
+  "plan": 162.2,
+  "terms": "흐름 47.7 + 턴 종료 방해 114.5 + 후속 0 − 효율 1장",
+  "moves": "Star Ryzeal 룰 특수 소환 [떼기: Node Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Cross 세트 카드 발동 | 방해: Ryzeal Cross, Ryzeal Detonator(1), Ryzeal Detonator(3), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)",
+  "extra_cost_order": [
+   "Eclipse Twins",
+   "Ryzeal Duo Drive",
+   "Ryzeal Detonator",
+   "Full Armored Utopic Ray Lancer",
+   "Evilswarm Exciton Knight",
+   "Tornado Dragon",
+   "Super Starslayer TY-PHON - Sky Crisis",
+   "Number 104",
+   "Infernal Flame Banshee",
+   "Number F0",
+   "Mereologic Aggregator",
+   "Traptrix Rafflesia"
+  ],
+  "gy_payoffs": [
+   "- Mereologic Aggregator (3) 키 9940036#2 상대 카드 대상: 원값 32 → × / 21.4 / 9.6",
+   "- Eclipse Twins (3) 키 45852939#0: 원값 35 → × / 23.5 / 10.5"
+  ]
+ },
+ "resid_fresh": {
+  "turn_negate_residual": [
+   "| Ice Ryzeal | 0 | 0 |  |",
+   "| Ryzeal Duo Drive | 131.4 | 0 | 효과 3 131.4 |",
+   "| Ryzeal Detonator | 63 | 50.1 | 효과 1 33, 효과 3 30 |",
+   "| Traptrix Rafflesia | 65 | 65 | 효과 5 65 |"
+  ]
+ },
+ "resid_used": {
+  "turn_negate_residual": [
+   "| Ice Ryzeal | 0 | 0 |  |",
+   "| Ryzeal Duo Drive | 0 | 0 |  |",
+   "| Ryzeal Detonator | 63 | 50.1 | 효과 1 33, 효과 3 30 |",
+   "| Traptrix Rafflesia | 0 | 0 |  |"
+  ]
+ }
+}
