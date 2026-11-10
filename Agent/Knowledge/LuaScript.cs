@@ -384,15 +384,33 @@ namespace WindBot.Agent.Knowledge
                 {
                     int from = Math.Max(0, m.Index - 6);
                     bool negated = body.Substring(from, m.Index - from).Contains("not");
+                    int min = m.Groups[5].Success ? Math.Max(1, int.Parse(m.Groups[5].Value, CultureInfo.InvariantCulture)) : 1;
+                    if (m.Groups[1].Value == "GetMatchingGroup") min = Math.Max(min, GroupPickMin(body, m.Index, min));
                     result.Add(new Selection
                     {
                         Function = function, Call = m.Groups[1].Value, Filter = m.Groups[2].Value,
                         SelfLocation = m.Groups[3].Value, OpponentLocation = m.Groups[4].Value, Negated = negated, Index = m.Index,
-                        Min = m.Groups[5].Success ? Math.Max(1, int.Parse(m.Groups[5].Value, CultureInfo.InvariantCulture)) : 1
+                        Min = min
                     });
                 }
             result.Sort((a, b) => a.Index.CompareTo(b.Index));
             return result;
+        }
+
+        /// <summary>
+        /// "local g=Duel.GetMatchingGroup(...)" picked later from the group: aux.SelectUnselectGroup(g,e,tp,MIN,...) or
+        /// g:Select(tp,MIN,...). Returns that minimum (e.g. Ryzeal Duo Drive ③ adds 2), or the given default.
+        /// </summary>
+        private static int GroupPickMin(string body, int at, int dflt)
+        {
+            Match v = Regex.Match(body.Substring(0, at), @"(\w+)\s*=\s*$");
+            if (!v.Success) return dflt;
+            string g = Regex.Escape(v.Groups[1].Value);
+            string rest = body.Substring(at);
+            Match p = Regex.Match(rest, @"aux\.SelectUnselectGroup\(\s*" + g + @"\s*,\s*\w+\s*,\s*\w+\s*,\s*(\d+)");
+            if (!p.Success) p = Regex.Match(rest, @"\b" + g + @":Select\(\s*\w+\s*,\s*(\d+)");
+            int n;
+            return p.Success && int.TryParse(p.Groups[1].Value, out n) && n > 0 ? n : dflt;
         }
 
         private static readonly HashSet<string> ActionNames = new HashSet<string>

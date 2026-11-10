@@ -213,6 +213,8 @@ namespace WindBot.Agent.Knowledge
     {
         public double Value;
         public readonly List<ChainStep> Steps = new List<ChainStep>();
+        /// <summary>Once-per-turn keys this path uses (so a second card picked at once does not count them again).</summary>
+        public readonly HashSet<string> Keys = new HashSet<string>(StringComparer.Ordinal);
 
         public string Describe()
         {
@@ -462,6 +464,7 @@ namespace WindBot.Agent.Knowledge
                 if (l.Role != "effect" || l.Opponent || l.Targets.Count == 0) continue;
                 string arrival = Arrival(l);
                 if (arrival == null) continue;
+                int pickedId = 0;
                 foreach (int t in l.Targets.Distinct())
                 {
                     if (!Available(t, l, ctx)) continue;
@@ -472,12 +475,47 @@ namespace WindBot.Agent.Knowledge
                     if (arrival == "HAND") next = FromHand(target, c, step + 1, e.BlocksNormalSummonOfAdded);
                     else if (arrival == "SET") next = Placed(target, step + 1, c); // set: the interruption it holds (a set field spell is activated on our turn)
                     else next = Arrive(target, arrival, c, step + 1);
-                    if (next.Value > bestNext.Value) bestNext = next;
+                    if (next.Value > bestNext.Value) { bestNext = next; pickedId = t; }
+                }
+                // Several cards at once (Ryzeal Duo Drive ③: 2 with different names): the further picks to hand add what
+                // they start too, valued without the Normal Summon (the first pick may have used it) and apart from the first.
+                if (l.Count > 1 && arrival == "HAND" && pickedId != 0)
+                {
+                    HashSet<int> taken = new HashSet<int> { pickedId };
+                    ChainResult more = new ChainResult();
+                    for (int k = 1; k < l.Count; ++k)
+                    {
+                        ChainResult extra = new ChainResult();
+                        int extraId = 0;
+                        foreach (int t in l.Targets.Distinct())
+                        {
+                            if (taken.Contains(t) || !Available(t, l, ctx)) continue;
+                            Ctx c = ctx.Clone();
+                            Take(t, l, c);
+                            foreach (string key in bestNext.Keys) c.UsedKeys.Add(key);
+                            ChainResult next = FromHand(_db.Get(t), c, step + 1, true);
+                            if (next.Value > extra.Value || extraId == 0) { extra = next; extraId = t; }
+                        }
+                        if (extraId == 0) break;
+                        taken.Add(extraId);
+                        more.Steps.AddRange(extra.Steps);
+                        more.Value += extra.Value;
+                    }
+                    if (more.Steps.Count > 0)
+                    {
+                        ChainResult both = new ChainResult { Value = bestNext.Value + more.Value };
+                        both.Steps.AddRange(bestNext.Steps);
+                        both.Steps.AddRange(more.Steps);
+                        foreach (string key in bestNext.Keys) both.Keys.Add(key);
+                        bestNext = both;
+                    }
                 }
             }
 
             result.Steps.Add(new ChainStep { Card = card.Data.Name, EffectIndex = e.Index, Function = function, Base = own, Discounted = own * discount });
             result.Steps.AddRange(bestNext.Steps);
+            result.Keys.Add(e.UsageKey);
+            foreach (string k in bestNext.Keys) result.Keys.Add(k);
             result.Value = own * discount + bestNext.Value;
             return result;
         }
@@ -534,6 +572,7 @@ namespace WindBot.Agent.Knowledge
             }
             if (best.Value <= 0) return;
             r.Steps.AddRange(best.Steps);
+            foreach (string k in best.Keys) r.Keys.Add(k);
             r.Value += best.Value;
         }
 
@@ -713,11 +752,19 @@ namespace WindBot.Agent.Knowledge
                 if (l.Role != "condition" || l.Opponent || l.Filter == null || l.Filter.Partial || l.AnyCard) continue;
                 HashSet<int> ok = new HashSet<int>(l.Targets);
                 bool any = ctx.Zones.AnyOwn(l.Location, id => ok.Contains(id))
-                        || ((l.Location.Contains("MZONE") || l.Location.Contains("ONFIELD")) && ctx.OnField.Any(ok.Contains));
+                        || ((l.Location.Contains("MZONE") || l.Location.Contains("ONFIELD")) && ctx.OnField.Any(ok.Contains))
+                        || (l.Location.Contains("EXTRA") && ok.Any(id => ExtraLeft(id, ctx.Zones) > 0)); // e.g. Ext Ryzeal ①: an Xyz still in the Extra Deck
                 if (l.Relation.StartsWith("존재") && !any) return false;
                 if (l.Relation.StartsWith("부재") && any) return false;
             }
             return true;
+        }
+
+        /// <summary>Copies of a card still in this side's Extra Deck: deck list − copies seen on the field, in the GY or banished.</summary>
+        private int ExtraLeft(int id, IZoneView z)
+        {
+            List<int> extra = _side == 0 ? _db.ExtraDeck : _db.OpponentExtraDeck;
+            return extra.Count(x => x == id) - z.Field(id) - z.Grave(id) - z.Banished(id);
         }
 
         /// <summary>Cost of discarding: the cheapest other own card in hand/field, valued by its own effects only (no recursion).</summary>

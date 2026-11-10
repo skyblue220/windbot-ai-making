@@ -1055,9 +1055,36 @@ namespace WindBot.Agent.Knowledge
             return FodderCost(FromSnapshot(z, _db), id);
         }
 
+        /// <remarks>
+        /// Tiers (lower first): a card that pays off in the GY (Eclipse Twins ③, Aggregator ③) → excluded cards → a spare
+        /// copy of an Xyz our GY → Deck effect can bring back (Ryzeal Cross ③ returns Ryzeal Xyz to the Extra Deck), keeping
+        /// one copy to summon this turn unless one is already on our field → the rest, least useful first.
+        /// </remarks>
         private double FodderCost(St s, int id)
         {
-            return -GraveBonus(id) * 100 + (_w.Excluded.Contains(id) ? -1 : 0) + ExtraUsefulness(s, id) * 0.01;
+            return -GraveBonus(id) * 100 + (_w.Excluded.Contains(id) ? -20 : 0) + (SpareRecyclable(s, id) ? 0 : 10) + ExtraUsefulness(s, id) * 0.01;
+        }
+
+        /// <summary>A copy beyond the one we would summon this turn, of an Xyz one of our GY → Deck effects can return.</summary>
+        private bool SpareRecyclable(St s, int id)
+        {
+            int n;
+            if (!IsXyz(id) || !Recyclable(id) || !s.Extra.TryGetValue(id, out n)) return false;
+            int keep = s.Mons.Any(m => m.Id == id) ? 0 : 1; // already summoned this turn: no copy to keep
+            return n - keep > 0;
+        }
+
+        private readonly Dictionary<int, bool> _recyclable = new Dictionary<int, bool>();
+
+        /// <summary>Some effect of ours returns this card from the GY to the Deck (e.g. Ryzeal Cross ③ for Ryzeal Xyz).</summary>
+        private bool Recyclable(int id)
+        {
+            bool r;
+            if (_recyclable.TryGetValue(id, out r)) return r;
+            r = _db.Cards.Values.Where(c => !c.Opponent && c.Data.Id != id)
+                   .Any(c => c.Effects.Any(e => e.Links.Any(l => l.Role == "effect" && !l.Opponent && l.Relation.StartsWith("묘지에서 덱으로") && l.Targets.Contains(id))));
+            _recyclable[id] = r;
+            return r;
         }
 
         /// <summary>
