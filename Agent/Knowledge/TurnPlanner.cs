@@ -233,7 +233,10 @@ namespace WindBot.Agent.Knowledge
             _db = db;
             _w = w;
             _int = new InterruptModel(w);
+            _payoff = new GravePayoffReader(db, w, HitsFieldCards);
         }
+
+        private readonly GravePayoffReader _payoff;
 
         public InterruptModel Interrupts { get { return _int; } }
 
@@ -551,10 +554,11 @@ namespace WindBot.Agent.Knowledge
                         double cost;
                         List<int> paid;
                         if (!PayCosts(n, c, proc, out cost, out paid)) continue;
-                        List<int> off = Detach(n, null, proc.DetachCount);
+                        double fired;
+                        List<int> off = Detach(n, null, proc.DetachCount, out fired);
                         Mon m = new Mon { Id = id };
                         n.Mons.Add(m);
-                        double gain = _w.BaseOf("rule_special_summon") + cost + proc.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(id, proc.Index);
+                        double gain = _w.BaseOf("rule_special_summon") + cost + fired + proc.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(id, proc.Index);
                         PlanMove rm = new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환" + CostText(paid) + DetachText(off), Gain = gain };
                         rm.CostIds.AddRange(paid);
                         AddArrival(result, n, m, "SPSUMMON_SUCCESS", rm);
@@ -897,19 +901,22 @@ namespace WindBot.Agent.Knowledge
             double cost;
             List<int> paid;
             if (!PayCosts(b, c, e, out cost, out paid)) return outs;
-            List<int> detached = Detach(b, src != null ? (int?)s.Mons.IndexOf(src) : null, e.DetachCount);
+            double fired;
+            List<int> detached = Detach(b, src != null ? (int?)s.Mons.IndexOf(src) : null, e.DetachCount, out fired);
 
-            double baseGain = cost + e.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(c.Data.Id, e.Index);
+            double baseGain = cost + fired + e.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(c.Data.Id, e.Index);
             string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" || kind == "zone" ? "기동" : "발동") + "(" + e.Index + ")" + CostText(paid) + DetachText(detached);
 
             // Side functions that do not bring a card.
+            int attached = 0; // the GY card attached as material: the live pick follows it
             foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
             {
                 string f = ValueModel.FunctionOf(l);
                 if (f == "attach_from_grave" && b.GraveMonsters(IsMonsterId) > 0)
                 {
                     Mon to = src != null && IsXyz(src.Id) ? b.Mons[s.Mons.IndexOf(src)] : b.Mons.FirstOrDefault(m => IsXyz(m.Id));
-                    if (to != null) { int gid = b.Grave.First(kv => kv.Value > 0 && IsMonsterId(kv.Key)).Key; b.Add(b.Grave, gid, -1); to.MatIds.Add(gid); baseGain += _w.BaseOf(f); label += " +소재: " + Name(_db.Get(gid)); }
+                    int gid = to != null ? AttachPick(b, to, l) : 0;
+                    if (gid != 0) { b.Add(b.Grave, gid, -1); to.MatIds.Add(gid); attached = gid; baseGain += _w.BaseOf(f); label += " +소재: " + Name(_db.Get(gid)); }
                 }
                 else if (f == "attach_from_deck")
                 {
@@ -951,7 +958,7 @@ namespace WindBot.Agent.Knowledge
             if (main == null)
             {
                 if (e.Categories.Contains("SEARCH")) baseGain += _w.BaseOf("search"); // unreadable pick (excavate etc.)
-                PlanMove only = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, Text = label, Gain = baseGain };
+                PlanMove only = new PlanMove { Kind = kind, CardId = c.Data.Id, EffectIndex = e.Index, TargetId = attached, Text = label, Gain = baseGain };
                 only.CostIds.AddRange(paid);
                 outs.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { only }, b));
                 return outs;
@@ -1023,7 +1030,7 @@ namespace WindBot.Agent.Knowledge
                     if (xid == 0) return false;
                     s.Add(s.Extra, xid, -1);
                     s.Add(s.Grave, xid, 1);
-                    cost += _w.BaseOf("cost_extra_to_grave") + GraveBonus(xid);
+                    cost += _w.BaseOf("cost_extra_to_grave") + FirePayoff(s, xid);
                 }
                 else if (l.Location != null && l.Location.Contains("DECK") && !l.Location.Contains("HAND") && l.Relation.Contains("묘지로"))
                 {
@@ -1324,12 +1331,107 @@ namespace WindBot.Agent.Knowledge
             return v;
         }
 
-        /// <summary>Which material to detach: an unknown one first, then the one whose GY payoff matters least
-        /// (payoff cards stay attached). Provisional: the keep/now choice comes with the GY-payoff values.</summary>
-        private int DetachPick(Mon m)
+        /// <summary>
+        /// Which material to detach (GRAVE_PAYOFF.md 5 step 2): the one whose GY payoff gains most by going now
+        /// (payoff now − payoff kept for the opponent's turn). Plain materials score 0: a payoff card with a target now goes
+        /// first, one that is worth more kept (no target, key already spent) stays attached. Ties: unknown, then oldest.
+        /// </summary>
+        private int DetachPick(St s, Mon m)
         {
-            if (m.MatIds.Contains(0)) return 0;
-            return m.MatIds.OrderBy(x => GraveBonus(x)).First();
+            int best = m.MatIds[0];
+            double bestScore = double.MinValue;
+            foreach (int id in m.MatIds.Distinct().OrderBy(x => x == 0 ? 0 : 1))
+            {
+                double score = id == 0 ? 0 : PayoffNow(s, id) - PayoffKeep(id);
+                if (score > bestScore + 1e-9) { best = id; bestScore = score; }
+            }
+            return best;
+        }
+
+        /// <summary>The best GY payoff of a card firing now: its once-per-turn key unused this turn, and a GY target for
+        /// payoffs that take one (Eclipse Twins: another Xyz in our GY). Weighted gy_payoff.now.</summary>
+        private double PayoffNow(St s, int id) { GravePayoff p; return PayoffNow(s, id, out p); }
+
+        private double PayoffNow(St s, int id, out GravePayoff best)
+        {
+            best = null;
+            CardEntry c = _db.Get(id);
+            if (c == null || _w.Excluded.Contains(id)) return 0;
+            double v = 0;
+            foreach (GravePayoff p in _payoff.Of(id))
+            {
+                if (p.Key != null && s.Used.Contains(p.Key)) continue;
+                if (!GraveTargetsReady(s, p.Effect, id)) continue;
+                double x = PayoffRaw(c, p.Effect, _oppFaceUp == 0) * _payoff.TimingWeight(PayoffTiming.Now);
+                if (x > v) { v = x; best = p; }
+            }
+            return v;
+        }
+
+        /// <summary>The same payoff kept for a detach on the opponent's turn (key fresh again): plain value × gy_payoff.opp_turn.</summary>
+        private double PayoffKeep(int id)
+        {
+            CardEntry c = _db.Get(id);
+            if (c == null || _w.Excluded.Contains(id)) return 0;
+            double v = 0;
+            foreach (GravePayoff p in _payoff.Of(id))
+                v = Math.Max(v, PayoffRaw(c, p.Effect, false, false) * _payoff.TimingWeight(PayoffTiming.OpponentTurn));
+            return v;
+        }
+
+        /// <summary>A payoff that brings a card from our GY needs one there (other than the card itself).</summary>
+        private bool GraveTargetsReady(St s, EffectEntry e, int self)
+        {
+            foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent && x.Location != null && x.Location.Contains("GRAVE")))
+            {
+                if (l.Filter == null || l.Filter.Partial || l.AnyCard || l.Targets.Count == 0) continue;
+                if (!l.Targets.Any(t => t != self ? s.Count(s.Grave, t) > 0 : s.Count(s.Grave, t) > 1)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>A card just sent to the GY: fire its payoff now if it has one (key spent, value returned).</summary>
+        private double FirePayoff(St s, int id)
+        {
+            GravePayoff p;
+            double v = PayoffNow(s, id, out p);
+            if (p != null && p.Key != null) s.Used.Add(p.Key);
+            return v;
+        }
+
+        /// <summary>
+        /// Which GY monster an attach-from-GY effect puts on the Xyz monster `to`: a payoff card when that monster will be able
+        /// to detach it on the opponent's turn (Detonator ①/③), otherwise the first one (as before). Restricted to the
+        /// effect's readable targets.
+        /// </summary>
+        private int AttachPick(St s, Mon to, CardLink l)
+        {
+            bool readable = l.Filter != null && !l.Filter.Partial && !l.AnyCard && l.Targets.Count > 0;
+            HashSet<int> ok = readable ? new HashSet<int>(l.Targets) : null;
+            List<int> cands = s.Grave.Where(kv => kv.Value > 0 && IsMonsterId(kv.Key) && (ok == null || ok.Contains(kv.Key))).Select(kv => kv.Key).ToList();
+            if (cands.Count == 0) return 0;
+            if (OppTurnDetaches(to.Id, to.Mats + 1) > 0)
+            {
+                int pay = cands.OrderByDescending(PayoffKeep).First();
+                if (PayoffKeep(pay) > 0) return pay;
+            }
+            return cands[0];
+        }
+
+        /// <summary>How many materials this monster can detach on the opponent's turn: its interruption detach costs
+        /// (Detonator ① up to its limit) plus a destroy replacement (Detonator ③).</summary>
+        private int OppTurnDetaches(int id, int mats)
+        {
+            CardEntry c = _db.Get(id);
+            if (c == null || mats <= 0) return 0;
+            int n = 0;
+            foreach (EffectEntry e in c.Effects)
+            {
+                if (!_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0) continue;
+                if (e.Kind.Contains("DESTROY_REPLACE")) n += 1;
+                else if (e.DetachCount > 0) n += e.Limit != null ? Math.Min(e.Limit.Count, mats / e.DetachCount) : mats / e.DetachCount;
+            }
+            return Math.Min(n, mats);
         }
 
         /// <summary>Plan-label text for the materials a move detached.</summary>
@@ -1344,9 +1446,10 @@ namespace WindBot.Agent.Knowledge
             return m.Mats == 0 ? "" : " [소재: " + String.Join(", ", m.MatIds.Select(x => x == 0 ? "?" : Name(_db.Get(x))).ToArray()) + "]";
         }
 
-        /// <summary>Detaches n materials (into the GY by id) and returns them.</summary>
-        private List<int> Detach(St s, int? from, int n)
+        /// <summary>Detaches n materials (into the GY by id) and returns them; fired = the GY payoffs that fire now.</summary>
+        private List<int> Detach(St s, int? from, int n, out double fired)
         {
+            fired = 0;
             List<int> off = new List<int>();
             for (int k = 0; k < n; ++k)
             {
@@ -1354,10 +1457,11 @@ namespace WindBot.Agent.Knowledge
                 Mon m = from.HasValue && from.Value < s.Mons.Count && s.Mons[from.Value].Mats > 0 ? s.Mons[from.Value]
                       : s.Mons.Where(x => x.Mats > 0).OrderBy(x => MaterialWorth(x.Id, x.Mats)).ThenByDescending(x => x.Mats).FirstOrDefault();
                 if (m == null) return off;
-                int mid = DetachPick(m);
+                int mid = DetachPick(s, m);
                 off.Add(mid);
                 m.MatIds.Remove(mid);
                 s.Add(s.Grave, mid, 1); // the detached material goes to the GY as itself (0 when unknown)
+                if (mid != 0) fired += FirePayoff(s, mid);
             }
             return off;
         }
@@ -1472,6 +1576,26 @@ namespace WindBot.Agent.Knowledge
                     if (uses <= 0 || !FieldConditions(e, s)) continue;
                     total += _int.Value(c, e, false) * uses;
                     board.Add(Name(c) + "(" + e.Index + ")" + (uses > 1 ? " ×" + uses : ""));
+                }
+            }
+
+            // Materials with a GY payoff that a monster can detach on the opponent's turn (Detonator ①/③ → Aggregator ③,
+            // Eclipse Twins ③): their once-per-turn key is fresh again there. Best payoffs first, one per key (GRAVE_PAYOFF.md 5 step 3).
+            HashSet<string> payKeys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mon m in s.Mons)
+            {
+                if (m.Negated || m.Mats == 0) continue;
+                int opp = OppTurnDetaches(m.Id, m.Mats);
+                foreach (int id in m.MatIds.Where(x => x != 0).OrderByDescending(PayoffKeep).ToList())
+                {
+                    if (opp <= 0) break;
+                    double v = PayoffKeep(id);
+                    if (v <= 0) break;
+                    GravePayoff p = _payoff.Of(id).FirstOrDefault();
+                    if (p != null && p.Key != null && !payKeys.Add(p.Key)) continue;
+                    opp--;
+                    total += v;
+                    board.Add(Name(_db.Get(id)) + "(" + Name(_db.Get(m.Id)) + " 소재, 상대 턴 묘지 효과)");
                 }
             }
             return total;
