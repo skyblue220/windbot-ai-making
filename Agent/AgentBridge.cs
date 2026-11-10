@@ -692,8 +692,16 @@ namespace WindBot.Agent
                                         if (pay != 0) { o.Estimate += pay; o.Info += " | " + why; }
                                     }
                                 }
+                                else if (o.Location == (int)CardLocation.Extra && r.PreferLow && r.Hint == 503 /* Remove */)
+                                    o.Estimate = _planner.BanishCost(z, o.CardId); // banished (Pot of Prosperity): keep payoff cards, unlike the GY order
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
                                     o.Estimate = _planner.FodderCost(z, o.CardId); // same order the plan used (e.g. Ext Ryzeal ① sends Eclipse Twins)
+                                else if (o.Location == (int)CardLocation.Grave && r.Hint == 513 /* XyzMaterial */)
+                                {
+                                    // Attaching from the GY (Detonator ②): payoff cards first (lower = picked), then by worth as before.
+                                    double keep = _planner.AttachValue(o.CardId);
+                                    if (keep > 0) { o.Estimate -= keep * 10; o.Info = (o.Info ?? "") + " | 소재로 붙이면 상대 턴 묘지 이득 " + keep.ToString("0.#"); }
+                                }
                                 else if (o.Location == (int)CardLocation.Grave && r.Hint == 507 /* ToDeck */)
                                     o.Estimate = -_planner.ReturnPriority(z, o.CardId); // GY → deck (Cross ②): cards that refuel a search next turn first
                             }
@@ -713,7 +721,7 @@ namespace WindBot.Agent
                         }
                         if (anyOpponent) r.NoExplore = true;
                         if (!r.PreferLow) FollowPlan(r);
-                        else if (!anyOpponent && !negate) FollowPlanCost(r);
+                        else if (!anyOpponent && !negate) { FollowPlanCost(r); FollowPlanAttach(r); }
                         break;
                     }
             }
@@ -734,6 +742,26 @@ namespace WindBot.Agent
                 hit.Estimate = (double.IsNaN(hit.Estimate) ? 0 : hit.Estimate) + PlanTargetBonus;
                 hit.Info = (hit.Info ?? "") + " | 계획대로: " + _planAhead[i].Text;
                 _planAhead.RemoveRange(0, i + 1);
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Attach-from-GY picks (a low-preferring material pick): the GY card the plan attached on the move being resolved
+        /// (or its triggers) goes first, e.g. Detonator ② attaching the Eclipse Twins the plan kept for the opponent's turn.
+        /// </summary>
+        private void FollowPlanAttach(DecisionRequest r)
+        {
+            if (r.Hint != 513 /* XyzMaterial */) return;
+            for (int i = 0; i < _planAhead.Count; ++i)
+            {
+                PlanMove m = _planAhead[i];
+                if (i > 0 && m.Kind != "trigger") return;
+                if (m.TargetId == 0) continue;
+                DecisionOption hit = r.Options.FirstOrDefault(o => o.Controller == 0 && o.CardId == m.TargetId && o.Location == (int)CardLocation.Grave);
+                if (hit == null) continue;
+                hit.Estimate = (double.IsNaN(hit.Estimate) ? 0 : hit.Estimate) - PlanTargetBonus;
+                hit.Info = (hit.Info ?? "") + " | 계획대로: " + m.Text;
                 return;
             }
         }

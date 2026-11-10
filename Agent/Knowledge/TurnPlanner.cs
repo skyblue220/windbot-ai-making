@@ -1088,6 +1088,20 @@ namespace WindBot.Agent.Knowledge
             return FodderCost(FromSnapshot(z, _db), id);
         }
 
+        /// <summary>
+        /// Order for banishing an Extra Deck card (Pot of Prosperity, lower first): the opposite of the GY order for payoff
+        /// cards, since a banished card never reaches the GY — keep payoff cards (their kept value), cards a GY → Deck effect
+        /// recycles, and useful Xyz; banish excluded and least useful cards first.
+        /// </summary>
+        public double BanishCost(ZoneSnapshot z, int id)
+        {
+            St s = FromSnapshot(z, _db);
+            return PayoffKeep(id) * 100 + (_w.Excluded.Contains(id) ? -20 : 0) + (Recyclable(id) ? 10 : 0) + ExtraUsefulness(s, id) * 0.01;
+        }
+
+        /// <summary>What a card attached as material is worth for its GY payoff on the opponent's turn (attach-from-GY picks).</summary>
+        public double AttachValue(int id) { return PayoffKeep(id); }
+
         /// <remarks>
         /// Tiers (lower first): a card that pays off in the GY (Eclipse Twins ③, Aggregator ③) → excluded cards → a spare
         /// copy of an Xyz our GY → Deck effect can bring back (Ryzeal Cross ③ returns Ryzeal Xyz to the Extra Deck), keeping
