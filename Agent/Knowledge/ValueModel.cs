@@ -267,12 +267,14 @@ namespace WindBot.Agent.Knowledge
             /// <summary>Cards put on the field earlier on this path (for summon conditions further down the chain).</summary>
             public List<int> OnField = new List<int>();
             public bool NormalSummon;
+            /// <summary>The other side's face-up cards (-1 = not known): a negation sent to the GY needs a target.</summary>
+            public int OppFaceUp = -1;
             public int Budget = 20000;
             public int Left(int id) { int n; return DeckLeft.TryGetValue(id, out n) ? n : 0; }
 
             public Ctx Clone()
             {
-                Ctx c = new Ctx { Zones = Zones, NormalSummon = NormalSummon, Budget = Budget };
+                Ctx c = new Ctx { Zones = Zones, NormalSummon = NormalSummon, Budget = Budget, OppFaceUp = OppFaceUp };
                 foreach (var kv in DeckLeft) c.DeckLeft[kv.Key] = kv.Value;
                 foreach (string k in UsedKeys) c.UsedKeys.Add(k);
                 c.OnField.AddRange(OnField);
@@ -295,7 +297,7 @@ namespace WindBot.Agent.Knowledge
 
         private Ctx NewCtx(IZoneView z, bool nextTurn = false)
         {
-            Ctx c = new Ctx { Zones = z, NormalSummon = nextTurn || z.NormalSummonAvailable };
+            Ctx c = new Ctx { Zones = z, NormalSummon = nextTurn || z.NormalSummonAvailable, OppFaceUp = z.Snapshot().OpponentFaceUp };
             foreach (var kv in DeckRemaining(z)) c.DeckLeft[kv.Key] = kv.Value;
             // Effects whose once-per-turn count is already spent this turn (next turn: only once-per-duel ones stay spent).
             foreach (CardEntry card in _db.Cards.Values)
@@ -618,7 +620,14 @@ namespace WindBot.Agent.Knowledge
             foreach (CardLink l in e.Links)
             {
                 if (l.Role != "cost") continue;
-                if (l.Relation.Contains("엑스트라 덱에서 묘지로")) { v += _w.BaseOf("cost_extra_to_grave"); functions.Add("코스트(엑스트라→묘지)"); }
+                if (l.Relation.Contains("엑스트라 덱에서 묘지로"))
+                {
+                    // The sent card's "sent to the GY" payoff when it fires now (same rule as the planner, GRAVE_PAYOFF.md 7.2).
+                    string paid;
+                    double pay = ExtraDumpPayoff(l, ctx, out paid);
+                    v += _w.BaseOf("cost_extra_to_grave") + pay;
+                    functions.Add("코스트(엑스트라→묘지" + (paid != null ? ": " + paid + " " + pay.ToString("0.#", CultureInfo.InvariantCulture) : "") + ")");
+                }
                 else if (l.Relation.Contains("묘지로")) { double c = CheapestFodder(card, ctx); v -= c; functions.Add("코스트(패/필드→묘지 " + c.ToString("0.#", CultureInfo.InvariantCulture) + ")"); }
             }
             if (e.DetachCount > 0) { v += e.DetachCount * _w.BaseOf("cost_detach"); functions.Add("소재 제거 " + e.DetachCount); }
@@ -761,6 +770,42 @@ namespace WindBot.Agent.Knowledge
                 if (l.Relation.StartsWith("부재") && any) return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Best "sent to the GY" payoff among the Extra Deck cards this cost can send that fires now: its key unused, a GY
+        /// target for payoffs that take one (Eclipse Twins: another Xyz there), an opponent's face-up card for a negation
+        /// (unknown counts as present). Value = interruption value or best own function × gy_payoff.now.
+        /// </summary>
+        private double ExtraDumpPayoff(CardLink cost, Ctx ctx, out string name)
+        {
+            name = null;
+            double best = 0;
+            foreach (int id in cost.Targets.Distinct())
+            {
+                if (_w.Excluded.Contains(id) || ExtraLeft(id, ctx.Zones) <= 0) continue;
+                CardEntry c = _db.Get(id);
+                if (c == null) continue;
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (!e.Kind.StartsWith("유발 효과") || !e.Events.Any(ev => ev.Contains("TO_GRAVE"))) continue;
+                    if (e.Limit != null && ctx.UsedKeys.Contains(e.UsageKey)) continue;
+                    if (ctx.OppFaceUp == 0 && _int.HitsFieldCards(c, e)) continue;
+                    bool ready = true;
+                    foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent && x.Location != null && x.Location.Contains("GRAVE")))
+                        if (l.Filter != null && !l.Filter.Partial && !l.AnyCard && l.Targets.Count > 0 && !l.Targets.Any(t => t != id && ctx.Zones.Grave(t) > 0)) ready = false;
+                    if (!ready) continue;
+                    double v = _int.IsInterrupt(c, e) ? _int.Value(c, e, false) : 0;
+                    foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
+                    {
+                        string f = FunctionOf(l);
+                        if (f != null) v = Math.Max(v, _w.BaseOf(f));
+                    }
+                    v *= _w.BaseOf("gy_payoff.now");
+                    if (v > best) { best = v; name = c.Data.Name; }
+                }
+            }
+            return best;
         }
 
         /// <summary>Copies of a card still in this side's Extra Deck: deck list − copies seen on the field, in the GY or banished.</summary>

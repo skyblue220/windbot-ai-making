@@ -100,6 +100,14 @@ namespace WindBot.Agent.Knowledge
             return "미분류";
         }
 
+        /// <summary>A negation / removal that needs a card on the field to hit (the opponent's, on our own turn).</summary>
+        public bool HitsFieldCards(CardEntry c, EffectEntry e)
+        {
+            string t = TypeName(c, e);
+            return e.NegateScope != null || t == "단순 파괴" || t == "단순 제외" || t == "패로 바운스" || t == "덱으로 바운스" || t == "컨트롤 탈취"
+                || t == "효과 무효" || t == "발동 무효" || t == "효과 무효 후 파괴" || t == "발동 무효 후 파괴";
+        }
+
         /// <summary>Base value by type (before scope and bonuses).</summary>
         public double TypeValue(CardEntry c, EffectEntry e)
         {
@@ -1180,12 +1188,7 @@ namespace WindBot.Agent.Knowledge
             return _int.TypeName(c, e) == "효과 무효" && HitsFieldCards(c, e);
         }
 
-        public bool HitsFieldCards(CardEntry c, EffectEntry e)
-        {
-            string t = _int.TypeName(c, e);
-            return e.NegateScope != null || t == "단순 파괴" || t == "단순 제외" || t == "패로 바운스" || t == "덱으로 바운스" || t == "컨트롤 탈취"
-                || t == "효과 무효" || t == "발동 무효" || t == "효과 무효 후 파괴" || t == "발동 무효 후 파괴";
-        }
+        public bool HitsFieldCards(CardEntry c, EffectEntry e) { return _int.HitsFieldCards(c, e); }
 
         /// <summary>
         /// Worth of keeping an Extra Deck card: 0 if it cannot be summoned now (same-name lock), otherwise what it would do on
