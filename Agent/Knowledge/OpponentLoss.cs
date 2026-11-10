@@ -113,6 +113,38 @@ namespace WindBot.Agent.Knowledge
             return expect;
         }
 
+        /// <summary>
+        /// What negating the effects of one of their face-up cards until the End Phase takes from them (Aggregator ③ type,
+        /// docs/GRAVE_PAYOFF.md 6): only the field effects it can still use this turn. Such a negation comes late (a GY trigger
+        /// fires after the chain that sent it), so the effect being activated now is already spent and counts 0.
+        ///  - Their turn: unused ignition / quick effects valued as their plays (side-1 chain value, e.g. Duo Drive ③ search)
+        ///    or as interruptions they hold (Detonator ①), whichever is more.
+        ///  - Our turn: only the interruptions they hold against us (quick effects, destroy replacement).
+        /// Past triggers (summon triggers) and continuous effects count 0 (not read yet).
+        /// </summary>
+        /// <param name="z">The opponent's zones.</param>
+        public double TurnResidual(CardEntry c, IZoneView z, InterruptModel im, bool theirTurn, List<string> notes = null)
+        {
+            if (c == null) return 0;
+            double sum = 0;
+            int fieldMaterials = z.FieldMaterials(); // a detach cost needs them
+            foreach (EffectEntry e in c.Effects)
+            {
+                if (e.Range == null || !(e.Range.Contains("MZONE") || e.Range.Contains("SZONE") || e.Range.Contains("FZONE"))) continue;
+                bool ignition = e.Kind == "기동 효과", quick = e.Kind == "유발 즉시 효과", interrupt = im.IsInterrupt(c, e);
+                if (!interrupt && !(theirTurn && (ignition || quick))) continue;
+                KeyUsage u = _db.PeekUsage(1, e);
+                if (u != null && e.Limit != null && u.Used >= e.Limit.Count) continue;
+                if (e.DetachCount > 0 && fieldMaterials < e.DetachCount) continue;
+                double v = interrupt ? im.Value(c, e, false) : 0;
+                if (theirTurn && (ignition || quick)) v = Math.Max(v, _theirs.ValueOfEffect(c.Data.Id, e, z).Value);
+                if (v <= 0) continue;
+                sum += v;
+                if (notes != null) notes.Add("효과 " + e.Index + " " + v.ToString("0.#", CultureInfo.InvariantCulture));
+            }
+            return sum;
+        }
+
         /// <summary>P(no copy of m given cards among h drawn from n) = C(n−m, h) / C(n, h).</summary>
         public static double NoneOf(int n, int m, int h)
         {

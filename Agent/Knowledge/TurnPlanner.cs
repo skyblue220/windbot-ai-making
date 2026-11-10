@@ -1131,11 +1131,15 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>What one "sent to the GY" trigger brings when it fires: its interruption value or its best own function
-        /// (no timing weight; GravePayoffReader applies that). noTargets: the opponent has no face-up card to hit.</summary>
-        public double PayoffRaw(CardEntry c, EffectEntry e, bool noTargets)
+        /// (no timing weight; GravePayoffReader applies that). noTargets: the opponent has no face-up card to hit.
+        /// useBoard: a turn negate is valued by the opponent's monsters now (false: the plain interruption value, for a later turn).</summary>
+        public double PayoffRaw(CardEntry c, EffectEntry e, bool noTargets, bool useBoard = true)
         {
             double v = _int.IsInterrupt(c, e) ? _int.Value(c, e, false) : 0;
             if (noTargets && HitsFieldCards(c, e)) v = 0;
+            // Negating a face-up card until the End Phase (Aggregator ③) on our turn: worth what the best target still holds
+            // against us this turn (its unused interruptions), when we know their monsters. GRAVE_PAYOFF.md 6.
+            else if (useBoard && IsTurnNegate(c, e) && _oppMons.Any(m => m.FaceUp)) v = _oppMons.Where(m => m.FaceUp).Max(m => m.Held);
             foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
             {
                 string f = ValueModel.FunctionOf(l);
@@ -1162,6 +1166,13 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>Negation or removal of a card on the field (e.g. Mereologic Aggregator ③): needs a target on the opponent's field.</summary>
+        /// <summary>"Negate the effects of a face-up card until the End Phase" (no destruction): only what the card still has
+        /// to use that turn is lost.</summary>
+        public bool IsTurnNegate(CardEntry c, EffectEntry e)
+        {
+            return _int.TypeName(c, e) == "효과 무효" && HitsFieldCards(c, e);
+        }
+
         public bool HitsFieldCards(CardEntry c, EffectEntry e)
         {
             string t = _int.TypeName(c, e);

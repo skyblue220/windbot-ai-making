@@ -65,6 +65,7 @@ namespace WindBot.Agent
         private TurnPlanner _planner;
         private BaitModel _bait;
         private OpponentLossModel _loss;
+        private GravePayoffReader _payoff;
         private DuelZoneView _oppZones;
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
         private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
@@ -129,6 +130,7 @@ namespace WindBot.Agent
                 _planner = new TurnPlanner(_db, _values.Weights);
                 _bait = new BaitModel(_db, _values.Weights);
                 _loss = new OpponentLossModel(_db, _values.Weights);
+                _payoff = new GravePayoffReader(_db, _values.Weights, _planner.HitsFieldCards);
                 ValueModel vm = _values;
                 _planner.NextTurnValue = id => vm.ValueNextTurn(id, _zones).Value;
                 ValuePolicy vp = _policy as ValuePolicy;
@@ -365,6 +367,50 @@ namespace WindBot.Agent
                 }
             }
             return null;
+        }
+
+        /// <summary>What negating this face-up opponent card until the End Phase takes from them (its effects left this turn).</summary>
+        private double TurnResidual(ClientCard c)
+        {
+            if (_loss == null || c == null || c.Id == 0 || c.IsFacedown()) return 0;
+            return _loss.TurnResidual(_db.EnsureCard(c.Id, true), _oppZones, _planner.Interrupts, _duel.Player == 1);
+        }
+
+        /// <summary>The best target for a "negate a face-up card until the End Phase" payoff, 0 if none.</summary>
+        private double BestTurnNegateTarget()
+        {
+            ClientField opp = _duel.Fields[1];
+            if (opp == null) return 0;
+            double best = 0;
+            foreach (ClientCard c in opp.MonsterZone.Concat(opp.SpellZone))
+                if (c != null && c.IsFaceup()) best = Math.Max(best, TurnResidual(c));
+            return best;
+        }
+
+        /// <summary>
+        /// Detach-order shift for a material with a GY payoff: −(payoff now) when it fires now on something worth it (the pick
+        /// prefers low), +(payoff kept for later) otherwise. 0 for materials without a payoff.
+        /// Now: our once-per-turn key unused this turn; a turn negate is worth its best target's effects left this turn.
+        /// Later: the opponent's turn (weight gy_payoff.opp_turn) when we detach on our turn, our next turn otherwise.
+        /// </summary>
+        private double GravePayoffDelta(int cardId, out string why)
+        {
+            why = null;
+            CardEntry c = cardId != 0 ? _db.Get(cardId) : null;
+            if (_payoff == null || c == null) return 0;
+            double now = 0, keep = 0;
+            PayoffTiming later = _duel.Player == 0 ? PayoffTiming.OpponentTurn : PayoffTiming.NextTurn;
+            foreach (GravePayoff p in _payoff.Of(cardId))
+            {
+                KeyUsage u = _db.PeekUsage(0, p.Effect);
+                bool spent = p.Key != null && u != null && p.Effect.Limit != null && u.Used >= p.Effect.Limit.Count;
+                double raw = _planner.IsTurnNegate(c, p.Effect) ? BestTurnNegateTarget() : _planner.PayoffRaw(c, p.Effect, OpponentFaceUp() == 0);
+                if (!spent) now = Math.Max(now, raw * _payoff.TimingWeight(PayoffTiming.Now));
+                keep = Math.Max(keep, _planner.PayoffRaw(c, p.Effect, false, false) * _payoff.TimingWeight(later));
+            }
+            if (now > 0) { why = "묘지 이득 지금 " + now.ToString("0.#"); return -now; }
+            if (keep > 0) { why = "묘지 이득 아낌 " + keep.ToString("0.#"); return keep; }
+            return 0;
         }
 
         /// <summary>What answering the opponent's last chain link with our effect (c, e) costs them; null if unknown.</summary>
@@ -639,6 +685,11 @@ namespace WindBot.Agent
                                         o.Estimate = _planner.MaterialWorth(holder.Id, holder.Overlays.Count) + o.Estimate * 0.01;
                                         CardEntry hc = _db.Get(holder.Id);
                                         o.Info = (o.Info ?? "") + " | 소재 위치: " + (hc != null ? hc.Data.Name : holder.Id.ToString());
+                                        // A material that pays off in the GY (Aggregator ③, Twins): detach it when the payoff is
+                                        // worth something now, otherwise keep it for a later detach (GRAVE_PAYOFF.md 6).
+                                        string why;
+                                        double pay = GravePayoffDelta(o.CardId, out why);
+                                        if (pay != 0) { o.Estimate += pay; o.Info += " | " + why; }
                                     }
                                 }
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
@@ -651,6 +702,12 @@ namespace WindBot.Agent
                                 // Removing an opponent's card: the more it is worth to them, the earlier we pick it.
                                 double threat = 0;
                                 if (o.CardId != 0 && _db.EnsureCard(o.CardId, true) != null) threat = _planner.Worth(z, o.CardId);
+                                if (negate)
+                                {
+                                    // Negating until the End Phase takes what the card can still use this turn.
+                                    ClientCard t = FieldCard(o);
+                                    if (t != null && t.IsFaceup()) { double left = TurnResidual(t); threat = Math.Max(threat, left); o.Info = (o.Info ?? "") + " | 이번 턴 남은 효과 " + left.ToString("0.#"); }
+                                }
                                 o.Estimate = -(OpponentTargetBase + Math.Max(0, threat));
                             }
                         }

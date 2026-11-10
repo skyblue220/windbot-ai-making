@@ -201,7 +201,7 @@ namespace WindBot.Agent
                     {
                         HashSet<string> used = new HashSet<string>();
                         if (p.Key != null) used.Add(p.Key);
-                        double raw = planner.PayoffRaw(c, p.Effect, false);
+                        double raw = planner.PayoffRaw(c, p.Effect, false, false);
                         Func<PayoffTiming, string> at = t => GravePayoffReader.Available(p, t, used) ? (raw * gp.TimingWeight(t)).ToString("0.#") : "×";
                         sb.AppendLine("- " + c.Data.Name + " (" + p.Effect.Index + ") 키 " + (p.Key ?? "없음") + (p.PerDuel ? " 듀얼 1번" : "") + (p.HitsOpponent ? " 상대 카드 대상" : "")
                             + ": 원값 " + raw.ToString("0.#") + " → " + at(PayoffTiming.Now) + " / " + at(PayoffTiming.OpponentTurn) + " / " + at(PayoffTiming.NextTurn));
@@ -327,6 +327,29 @@ namespace WindBot.Agent
                 sb.AppendLine("| " + h + " | " + r.Chain.ToString("0.#") + " | " + r.Restart.ToString("0.#") + " | " + r.Loss.ToString("0.#") + " | " + String.Join("; ", r.Notes.ToArray()) + " |");
             }
             sb.AppendLine();
+            // Aggregator ③ type (negate a face-up card until the End Phase, fires after the chain): what each of their
+            // face-up cards still has to use this turn once the activation above is spent (GRAVE_PAYOFF.md 6).
+            string field = Config.GetString("AgentDbOppField");
+            if (field != null)
+            {
+                db.OnChaining(99, 1, c.Data.Id, e.DescIndex.HasValue ? ((long)c.Data.Id << 20) | (long)e.DescIndex.Value : 0);
+                db.OnChainSolved(99);
+                db.OnChainEnd();
+                InterruptModel im = new InterruptModel(w);
+                sb.AppendLine("## 앞면 카드 무효(엔드 페이즈까지) 시 이번 턴 잃는 값 — 위 발동은 이미 사용");
+                sb.AppendLine();
+                sb.AppendLine("| 상대 카드 | 상대 턴 | 우리 턴 | 남은 효과 |");
+                sb.AppendLine("|---|---|---|---|");
+                foreach (int x in field.Split(',').Select(s => { int v; return int.TryParse(s.Trim().Split(':')[0], out v) ? v : 0; }).Where(v => v != 0).Distinct())
+                {
+                    CardEntry xc = db.EnsureCard(x, true);
+                    List<string> notes = new List<string>();
+                    double theirs = model.TurnResidual(xc, z, im, true, notes);
+                    double ours = model.TurnResidual(xc, z, im, false);
+                    sb.AppendLine("| " + (xc != null ? xc.Data.Name : x.ToString()) + " | " + theirs.ToString("0.#") + " | " + ours.ToString("0.#") + " | " + String.Join(", ", notes.ToArray()) + " |");
+                }
+                sb.AppendLine();
+            }
             return sb.ToString();
         }
 
