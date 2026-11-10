@@ -1,0 +1,134 @@
+{
+ "start": {
+  "stop": 25.8,
+  "replan": 175.7,
+  "total": 315.7,
+  "plan": "행동: Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Infernal Flame Banshee 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Star Ryzeal → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3)"
+ },
+ "A_ice2": {
+  "stop": 0.0,
+  "replan": 0.0,
+  "total": 0.0,
+  "plan": ""
+ },
+ "A_sword2": {
+  "stop": 0.0,
+  "replan": 229.5,
+  "total": 316.3,
+  "plan": "행동: Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 기동(3) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Traptrix Rafflesia 엑시즈 소환 → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "A_ext2": {
+  "stop": 0.0,
+  "replan": 231.3,
+  "total": 325.1,
+  "plan": "행동: Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Cross → Infernal Flame Banshee 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Traptrix Rafflesia 엑시즈 소환 → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "A_ban1": {
+  "stop": 24.4,
+  "replan": 230.8,
+  "total": 340.5,
+  "plan": "행동: Sword Ryzeal 일반 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Infernal Flame Banshee 기동(1) → Star Ryzeal → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 기동(3) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Traptrix Rafflesia 엑시즈 소환 → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "A_nib": {
+  "stop": 26.3,
+  "replan": 277.6,
+  "total": 401.6,
+  "plan": "행동: Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ice Ryzeal → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우 → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3)"
+ },
+ "A_star2": {
+  "stop": 24.5,
+  "replan": 231.0,
+  "total": 313.4,
+  "plan": "행동: Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Sword Ryzeal 일반 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Infernal Flame Banshee 기동(1) → Ext Ryzeal → Ryzeal Duo Drive 기동(3) → Ryzeal Cross → Node Ryzeal 기동(2) [코스트: Ext Ryzeal] → Ext Ryzeal → Ryzeal Cross 필드 마법 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "A_det2": {
+  "stop": 137.7,
+  "replan": 275.8,
+  "total": 386.9,
+  "plan": "행동: Sword Ryzeal 일반 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Star Ryzeal → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Sword Ryzeal 룰 특수 소환 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1), Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "A_end": {
+  "stop": 156.7,
+  "replan": 315.6,
+  "total": 423.0,
+  "plan": "행동: Sword Ryzeal 일반 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Infernal Flame Banshee 기동(1) → Star Ryzeal → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Traptrix Rafflesia 엑시즈 소환 → Ryzeal Duo Drive 기동(3) → Ice Ryzeal → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "A_end_d": {
+  "stop": 115.8,
+  "replan": 275.8,
+  "total": 372.6,
+  "plan": "행동: Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Star Ryzeal 일반 소환 → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Ryzeal Duo Drive 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Traptrix Rafflesia 엑시즈 소환 → Ryzeal Duo Drive 기동(3) → Ryzeal Plasma Hole → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1), Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_ban1": {
+  "stop": 18.5,
+  "replan": 245.2,
+  "total": 376.1,
+  "plan": "행동: Infernal Flame Banshee 기동(1) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ryzeal Plasma Hole → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3)"
+ },
+ "B_star2": {
+  "stop": 18.5,
+  "replan": 211.3,
+  "total": 328.2,
+  "plan": "행동: Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Node Ryzeal 룰 특수 소환 → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Node Ryzeal 기동(2) [코스트: Ext Ryzeal] → Ice Ryzeal → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ryzeal Cross → Ryzeal Cross 필드 마법 발동 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_ext2": {
+  "stop": 0.0,
+  "replan": 304.0,
+  "total": 389.7,
+  "plan": "행동: Traptrix Rafflesia 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, 소재] +드로우 → Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ryzeal Plasma Hole → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Traptrix Rafflesia(5), Ryzeal Detonator(1) ×3, Ryzeal Detonator(3)"
+ },
+ "B_nib": {
+  "stop": 22.9,
+  "replan": 67.1,
+  "total": 67.1,
+  "plan": "행동: Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Sword Ryzeal] +드로우"
+ },
+ "B_node2": {
+  "stop": 0.0,
+  "replan": 253.5,
+  "total": 342.7,
+  "plan": "행동: Ryzeal Duo Drive 엑시즈 소환 → Ryzeal Duo Drive 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재 → Infernal Flame Banshee → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_duo2": {
+  "stop": 43.0,
+  "replan": 306.3,
+  "total": 394.0,
+  "plan": "행동: Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Duo Drive 기동(3) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Star Ryzeal → Tornado Dragon 엑시즈 소환 → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Tornado Dragon(1), Traptrix Rafflesia(5)"
+ },
+ "B_duo3": {
+  "stop": 43.0,
+  "replan": 305.5,
+  "total": 392.4,
+  "plan": "행동: Tornado Dragon 엑시즈 소환 → Ryzeal Duo Drive 기동(3) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Tornado Dragon(1), Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_ready": {
+  "stop": 43.0,
+  "replan": 305.5,
+  "total": 429.6,
+  "plan": "행동: Ryzeal Duo Drive 기동(3) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Ryzeal Detonator 엑시즈 소환 → Ryzeal Detonator 유발(2) +소재 → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Tornado Dragon 엑시즈 소환 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Tornado Dragon(1), Traptrix Rafflesia(5)"
+ },
+ "B_end_PlS": {
+  "stop": 170.2,
+  "replan": 314.1,
+  "total": 430.3,
+  "plan": "행동: Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ice Ryzeal → Ryzeal Plugin 발동(1) +덱→소재 → Number 104: Masquerade → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Ryzeal Duo Drive 기동(3) → Ryzeal Plasma Hole → Number 104: Masquerade 기동(2) → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Infernal Flame Banshee 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_end_PlE": {
+  "stop": 165.4,
+  "replan": 315.5,
+  "total": 446.2,
+  "plan": "행동: Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Ryzeal Plugin 발동(1) +덱→소재 → Number 104: Masquerade → Sword Ryzeal 룰 특수 소환 → Ryzeal Duo Drive 기동(3) → Ryzeal Plasma Hole → Infernal Flame Banshee 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ice Ryzeal → Number 104: Masquerade 기동(2) → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_end_ES": {
+  "stop": 176.4,
+  "replan": 316.1,
+  "total": 407.8,
+  "plan": "행동: Sword Ryzeal 일반 소환 → Sword Ryzeal 유발(2) → Star Ryzeal → Ext Ryzeal 룰 특수 소환 → Star Ryzeal 룰 특수 소환 → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Infernal Flame Banshee 엑시즈 소환 → Ryzeal Duo Drive 기동(3) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Traptrix Rafflesia 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ },
+ "B_end_hit": {
+  "stop": 133.3,
+  "replan": 274.5,
+  "total": 401.0,
+  "plan": "행동: Ryzeal Duo Drive 기동(3) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ice Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Infernal Flame Banshee 엑시즈 소환 → Infernal Flame Banshee 기동(1) → Ice Ryzeal → Ryzeal Cross 기동(3) [덱으로: 소재, 소재] +드로우 → Traptrix Rafflesia 엑시즈 소환 | 방해: Ryzeal Cross, Ryzeal Plasma Hole ×2, Ryzeal Detonator(1), Ryzeal Detonator(3), Traptrix Rafflesia(5)"
+ }
+}
