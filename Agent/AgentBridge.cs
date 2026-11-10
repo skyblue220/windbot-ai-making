@@ -64,6 +64,8 @@ namespace WindBot.Agent
         private ValueModel _values;
         private TurnPlanner _planner;
         private BaitModel _bait;
+        private OpponentLossModel _loss;
+        private DuelZoneView _oppZones;
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
         private readonly Dictionary<DecisionOption, PlanResult> _optionPlans = new Dictionary<DecisionOption, PlanResult>();
         private readonly List<PlanMove> _planAhead = new List<PlanMove>();
@@ -126,11 +128,13 @@ namespace WindBot.Agent
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
                 _planner = new TurnPlanner(_db, _values.Weights);
                 _bait = new BaitModel(_db, _values.Weights);
+                _loss = new OpponentLossModel(_db, _values.Weights);
                 ValueModel vm = _values;
                 _planner.NextTurnValue = id => vm.ValueNextTurn(id, _zones).Value;
                 ValuePolicy vp = _policy as ValuePolicy;
                 if (vp != null) vp.Explore = _values.Weights.Explore;
                 _zones = new DuelZoneView(_duel, _db);
+                _oppZones = new DuelZoneView(_duel, _db, 1);
                 WriteCardDb();
             }
             catch (Exception ex)
@@ -363,6 +367,27 @@ namespace WindBot.Agent
             return null;
         }
 
+        /// <summary>What answering the opponent's last chain link with our effect (c, e) costs them; null if unknown.</summary>
+        private HitLoss HitLossNow(CardEntry c, EffectEntry e)
+        {
+            if (_loss == null) return null;
+            try
+            {
+                ChainInfo link = _duel.CurrentChainInfo.LastOrDefault(x => x.ActivatePlayer == 1);
+                if (link == null) return null;
+                int tid = link.RelatedCard != null && link.RelatedCard.Id != 0 ? link.RelatedCard.Id : link.ActivateId;
+                CardEntry tc = tid != 0 ? _db.EnsureCard(tid, true) : null;
+                EffectEntry te = tc != null ? _db.FindEffect(tc, link.ActivateDescription) : null;
+                if (te == null) return null;
+                return _loss.Loss(tc, te, _db.CanHit(c, e, tc, te), _oppZones, OpponentPoolNow());
+            }
+            catch (Exception ex)
+            {
+                _log.Error("hit-loss", ex.ToString());
+                return null;
+            }
+        }
+
         private void BaitOrder(DecisionRequest r)
         {
             if (_bait == null) return;
@@ -569,6 +594,9 @@ namespace WindBot.Agent
                                     o.Info = (o.Info ?? "") + " | 보류: " + skip;
                                 }
                                 else o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                                // Shown only for now (step 1 of the use/hold plan): what this hit costs the opponent.
+                                HitLoss hl = HitLossNow(c, e);
+                                if (hl != null) o.Info = (o.Info ?? "") + " | " + hl.Describe();
                             }
                         }
                         if (opponentActed) BaitOrder(r);
@@ -911,6 +939,12 @@ namespace WindBot.Agent
                     ChainInfo info = _duel.CurrentChainInfo[_duel.CurrentChainInfo.Count - 1];
                     int id = info.RelatedCard != null && info.RelatedCard.Id != 0 ? info.RelatedCard.Id : info.ActivateId;
                     _db.OnChaining(_duel.CurrentChainInfo.Count, info.ActivatePlayer, id, info.ActivateDescription);
+                }
+                else if (message == GameMessage.Summoning && _duel.LastSummonPlayer == 1)
+                {
+                    // Their Normal Summon (GameBehavior has just read it): the opponent's summon right is spent this turn.
+                    ClientCard s = _duel.SummoningCards.LastOrDefault();
+                    _db.OnOpponentNormalSummon(s != null ? s.Id : 0);
                 }
                 else if (message == GameMessage.NewTurn)
                 {

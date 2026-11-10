@@ -248,6 +248,8 @@ namespace WindBot.Agent.Knowledge
         private readonly Dictionary<int, PendingLink> _chain = new Dictionary<int, PendingLink>();
         public int Turn;
         public bool NormalSummonUsed;
+        /// <summary>The opponent has Normal Summoned / Set this turn (MSG_SUMMONING by player 1).</summary>
+        public bool OpponentNormalSummonUsed;
         public readonly List<string> TurnEvents = new List<string>();
 
         private sealed class PendingLink
@@ -1205,6 +1207,7 @@ namespace WindBot.Agent.Knowledge
             _usage[0].Clear();
             _usage[1].Clear();
             NormalSummonUsed = false;
+            OpponentNormalSummonUsed = false;
             TurnEvents.Clear();
         }
 
@@ -1320,6 +1323,13 @@ namespace WindBot.Agent.Knowledge
         {
             NormalSummonUsed = true;
             TurnEvents.Add("일반 소환: " + Name(Get(cardId)));
+        }
+
+        /// <summary>The opponent Normal Summoned (or Set) a monster this turn: their summon right is spent.</summary>
+        public void OnOpponentNormalSummon(int cardId)
+        {
+            OpponentNormalSummonUsed = true;
+            TurnEvents.Add("상대 일반 소환: " + (cardId != 0 ? Name(EnsureCard(cardId, true)) : "(뒷면)"));
         }
 
         private static string Who(int player) { return player == 0 ? "자신" : "상대"; }

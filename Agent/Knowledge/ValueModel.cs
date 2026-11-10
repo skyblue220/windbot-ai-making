@@ -62,6 +62,7 @@ namespace WindBot.Agent.Knowledge
             { "int.chainproof_bonus", 5 },
             { "int.battle_factor", 0.5 },
             { "int.partial_hold", 0.5 }, // a per-monster removal (Plasma Hole) waits while it would take at most this share of what it could
+            { "hit.disrupt_body", 10 },  // a hit that destroys the card but lets its effect resolve (Ghost Ogre): the body lost (learnable)
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
             { "battle.lethal", 10000 },  // planner: the end board deals lethal damage in the Battle Phase still ahead
@@ -235,13 +236,21 @@ namespace WindBot.Agent.Knowledge
         private readonly GameCardDb _db;
         private readonly ValueWeights _w;
         private readonly InterruptModel _int;
+        /// <summary>Whose cards this model values: 0 = ours, 1 = the opponent's (their deck list, their once-per-turn uses, their zones).</summary>
+        private readonly int _side;
 
-        public ValueModel(GameCardDb db, ValueWeights weights)
+        public ValueModel(GameCardDb db, ValueWeights weights, int side = 0)
         {
             _db = db;
             _w = weights;
             _int = new InterruptModel(weights);
+            _side = side;
         }
+
+        /// <summary>The side plays this card: ours = not opponent-only; theirs = opponent-only or a card both decks hold.</summary>
+        private bool Plays(CardEntry c) { return _side == 0 ? !c.Opponent : c.Opponent || c.OpponentCopies > 0; }
+
+        private List<int> DeckList { get { return _side == 0 ? _db.MainDeck : _db.OpponentMainDeck; } }
 
         public ValueWeights Weights { get { return _w; } }
 
@@ -270,9 +279,10 @@ namespace WindBot.Agent.Knowledge
         public Dictionary<int, int> DeckRemaining(IZoneView z)
         {
             Dictionary<int, int> left = new Dictionary<int, int>();
-            foreach (int id in _db.MainDeck.Distinct())
+            List<int> deck = DeckList;
+            foreach (int id in deck.Distinct())
             {
-                int n = _db.MainDeck.Count(x => x == id) - z.Hand(id) - z.Field(id) - z.Grave(id) - z.Banished(id);
+                int n = deck.Count(x => x == id) - z.Hand(id) - z.Field(id) - z.Grave(id) - z.Banished(id);
                 left[id] = Math.Max(0, n);
             }
             return left;
@@ -284,11 +294,11 @@ namespace WindBot.Agent.Knowledge
             foreach (var kv in DeckRemaining(z)) c.DeckLeft[kv.Key] = kv.Value;
             // Effects whose once-per-turn count is already spent this turn (next turn: only once-per-duel ones stay spent).
             foreach (CardEntry card in _db.Cards.Values)
-                if (!card.Opponent) // our own usage only
+                if (Plays(card)) // this side's usage only
                 foreach (EffectEntry e in card.Effects)
                 {
                     if (nextTurn && (e.Limit == null || !e.Limit.PerDuel)) continue;
-                    KeyUsage u = _db.PeekUsage(0, e);
+                    KeyUsage u = _db.PeekUsage(_side, e);
                     if (u != null && e.Limit != null && u.Used >= e.Limit.Count) c.UsedKeys.Add(e.UsageKey);
                 }
             return c;
@@ -302,6 +312,29 @@ namespace WindBot.Agent.Knowledge
             CardEntry card = _db.Get(cardId);
             if (card == null || effect == null) return new ChainResult();
             return FromEffect(card, effect, NewCtx(z), 0);
+        }
+
+        /// <summary>
+        /// What an effect that is being activated right now still brings: its own once-per-turn use (already counted at
+        /// activation) is not held against it. Used for the opponent's chain link we may answer.
+        /// </summary>
+        public ChainResult ValueOfActivating(int cardId, EffectEntry effect, IZoneView z)
+        {
+            CardEntry card = _db.Get(cardId);
+            if (card == null || effect == null) return new ChainResult();
+            Ctx ctx = NewCtx(z);
+            ctx.UsedKeys.Remove(effect.UsageKey);
+            return FromEffect(card, effect, ctx, 0);
+        }
+
+        /// <summary>Value of a card in hand with some extra once-per-turn keys counted as spent (e.g. an effect we negate).</summary>
+        public ChainResult ValueInHand(int cardId, IZoneView z, IEnumerable<string> alsoUsed)
+        {
+            CardEntry card = _db.Get(cardId);
+            if (card == null) return new ChainResult();
+            Ctx ctx = NewCtx(z);
+            if (alsoUsed != null) foreach (string k in alsoUsed) ctx.UsedKeys.Add(k);
+            return FromHand(card, ctx, 0);
         }
 
         /// <summary>Value of a card in hand: best way to bring it out (rule summon or normal summon) and what follows.</summary>
@@ -693,7 +726,7 @@ namespace WindBot.Agent.Knowledge
             double best = double.MaxValue;
             foreach (CardEntry c in _db.Cards.Values)
             {
-                if (c.Opponent) continue;
+                if (!Plays(c)) continue;
                 int copies = ctx.Zones.Hand(c.Data.Id) + ctx.Zones.Field(c.Data.Id) - (c == self ? 1 : 0);
                 if (copies <= 0) continue;
                 double v = 0;

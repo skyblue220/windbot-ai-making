@@ -181,6 +181,36 @@ PYTHONIOENCODING=utf-8 python run_dumps.py
   - 대상: 시작 카드 = 현재 보드에서 패 가치가 양수인 덱 카드
   - 결과: 손패가 많을수록 시작 카드(미끼)를 치는 값이 내려간다.
 
+#### 8.1.1 1단계 구현 (2026-11-10, 표시만 하고 판단에는 아직 안 씀)
+- `Knowledge/OpponentLoss.cs`: `OpponentLossModel.Loss(상대 카드, 효과, HitKind, 상대 존, OpponentPool)`.
+  - 연쇄: 상대 쪽 `ValueModel`의 `ValueOfActivating`. 지금 발동 중인 효과의 1턴 1번은 발동 때 이미 세었으므로 빼고 계산한다.
+  - 재시작 기대값: 숨은 카드 중 시작 가능한 카드(패 가치 > 0, 맞은 효과의 키는 소비된 것으로)를 가치순으로 정렬해 E[최고값]을 낸다. P(그룹 i가 최고) = P(1..i−1 없음) − P(1..i 없음), P(m장 없음) = C(N−m, h)/C(N, h).
+  - 손실 = max(0, 연쇄 − 재시작). `Disrupt`(Ghost Ogre)는 `hit.disrupt_body`(10, 학습 대상).
+- `ValueModel(db, w, side)`: side 1이면 상대 덱 목록, 상대 1턴 1번 사용(`PeekUsage(1, …)`), 상대가 쓰는 카드만 코스트 후보로 본다.
+- `DuelZoneView(duel, db, player)`: player 1 = 상대 존(손패는 공개된 카드만). 상대 일반 소환은 MSG_SUMMONING(상대)로 `OpponentNormalSummonUsed`에 남긴다.
+- 체인 응답 선택지 정보에 "상대 손실 X (연쇄 a − 재시작 b)"를 붙인다. 추정값은 그대로다.
+- 오프라인: `AgentDbOppActivate=id:효과번호`, `AgentDbOppField`(엑시즈는 `id:소재수`), `AgentDbOppGrave`, `AgentDbOppUsed=id:효과번호,…`, `AgentDbOppNormalSummon`, `AgentDbHitter=id[:효과번호]`. 상대 모르는 손패 0~7장 표. 재현: `experiments/interruption_risk/hit_loss.py`.
+- 덤프 수정: `StaticZoneView.FieldMaterials()`가 `id:소재수`로 넣은 몬스터의 소재를 세지 않았다(소재 제거 코스트가 있는 효과가 0으로 나옴). 이제 센다.
+
+오프라인 결과 (우리 응답 Ash, 미러 덱, 상대가 앞에서 쓴 효과는 사용 처리):
+
+| 상대 효과 | 연쇄 | 손실 h=0 | h=2 | h=4 | h=6 |
+|---|---|---|---|---|---|
+| Ice ② | 85.9 | 85.9 | 61.4 | 46.8 | 37.8 |
+| Sword ② (Ice ② 뒤) | 30 | 30 | 15.3 | 5.4 | 0 |
+| Ext ② (Ice ②·Sword ② 뒤) | 44 | 44 | 26.2 | 15.6 | 9.3 |
+| Banshee ① | 70 | 70 | 45.8 | 33.1 | 25.8 |
+| Duo Drive ③ (루트 B 끝) | 57.5 | 57.5 | 38.7 | 28.3 | 22.4 |
+| Ice ② ← Ghost Ogre (Disrupt) | 85.9 | 10 | 10 | 10 | 10 |
+
+- 상대 손패가 많을수록 손실이 내려가는 방향은 맞다(시작 카드를 치는 가치가 손패에 반비례).
+- 다만 손패 6장에서도 Ice ②(37.8)가 Duo Drive ③(22.4)보다 크다. 이 숫자만으로는 "Ice를 흘려보내고 Duo Drive ③를 친다"가 나오지 않는다. 원인 후보(아래 한계)를 고친 뒤 다시 본다.
+
+한계 (확인한 것):
+- **Ext 룰 소환이 패에서 평가되지 않음 (기존 문제, 양쪽 공통)**: Ext ①의 조건 "엑스트라 덱에 Xyz가 있어야 함"을 존 뷰가 볼 수 없다(`AnyOwn`에 EXTRA 없음). 그래서 Sword ② → Ext 서치 뒤의 연쇄가 끊겨 Sword ②(30)가 낮게 나온다. 우리 쪽 카드 가치에도 같은 영향이 있다.
+- **Duo Drive ③는 2장을 가져오는데** 선형 경로는 가장 좋은 1장만 센다.
+- 재시작은 "맞으면 손패의 최선 카드로 다시 시작"만 본다. 맞지 않아도 그 손패가 더해 줄 값(겹치지 않는 부분)은 아직 빼지 않는다.
+
 ### 8.2 예외 — 다른 테마에서 구분할 방법 (Ryzeal에서는 배제해도 됨)
 - **방해형 (효과는 처리됨)**
   - Ghost Ogre처럼 카드를 파괴하지만 효과는 처리되는 경우다. `CanHit` = `Disrupt`.

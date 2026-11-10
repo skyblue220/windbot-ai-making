@@ -211,6 +211,8 @@ namespace WindBot.Agent
                 sb.AppendLine();
                 sb.Append(DescribeBait(db, w, pool, Config.GetString("AgentDbBait")));
             }
+            string oppAct = Config.GetString("AgentDbOppActivate");
+            if (oppAct != null && db.HasOpponentDeck) sb.Append(DescribeHitLoss(db, LoadWeights(), oppAct));
             File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
             Logger.WriteLine("Card DB: " + db.Cards.Count + " cards, constants " + db.ConstantCount + ", script dirs " + db.ScriptDirCount + " → " + Path.GetFullPath(outPath));
         }
@@ -219,6 +221,98 @@ namespace WindBot.Agent
         /// Stop chance of each of our interruptions that is activated (a chain link), and, for AgentDbBait=id:effect,id:effect,...,
         /// the bait order of that set offered together.
         /// </summary>
+        /// <summary>
+        /// Hit-loss test (docs/INTERRUPTION_RISK.md 8.1): the opponent activates AgentDbOppActivate=id:effectIndex with their
+        /// board AgentDbOppField (ids, monsters and spells, e.g. 8633261) / AgentDbOppGrave, Normal Summon spent unless
+        /// AgentDbOppNormalSummon=true. Our answer AgentDbHitter=id[:effectIndex] (default: a plain negation).
+        /// Prints the loss for 0..7 unknown cards in their hand.
+        /// </summary>
+        public static string DescribeHitLoss(GameCardDb db, ValueWeights w, string act)
+        {
+            StringBuilder sb = new StringBuilder();
+            string[] p = act.Split(':');
+            int id, idx = 0;
+            if (!int.TryParse(p[0], out id) || (p.Length > 1 && !int.TryParse(p[1], out idx))) return "# 상대 손실 시험: AgentDbOppActivate 형식 오류 (id:효과번호)\n";
+            CardEntry c = db.EnsureCard(id, true);
+            EffectEntry e = c != null ? c.Effects.FirstOrDefault(x => x.Index == idx) : null;
+            if (e == null) return "# 상대 손실 시험: " + act + " 효과 없음\n";
+
+            StaticZoneView z = new StaticZoneView { NormalSummonAvailable = Config.GetBool("AgentDbOppNormalSummon", false) };
+            OpponentPool seen = new OpponentPool();
+            foreach (var kv in new[] { new KeyValuePair<string, string>("MZONE", "AgentDbOppField"), new KeyValuePair<string, string>("GRAVE", "AgentDbOppGrave") })
+            {
+                string list = Config.GetString(kv.Value);
+                if (list == null) continue;
+                foreach (string s in list.Split(','))
+                {
+                    string[] parts = s.Trim().Split(':');
+                    int x, mats;
+                    if (!int.TryParse(parts[0], out x)) continue;
+                    CardEntry xc = db.EnsureCard(x, true);
+                    bool spell = xc != null && (xc.Data.Type & 0x1) == 0;
+                    if (kv.Key == "MZONE" && !spell && parts.Length > 1 && int.TryParse(parts[1], out mats)) z.AddMonster(x, mats); // Xyz with materials
+                    else z.Add(kv.Key == "MZONE" && spell ? "SZONE" : kv.Key, x);
+                    int n;
+                    seen.Seen[x] = seen.Seen.TryGetValue(x, out n) ? n + 1 : 1;
+                }
+            }
+
+            // Effects the opponent already used this turn, e.g. AgentDbOppUsed=8633261:2,35844557:2 (counted as activated and resolved).
+            string used = Config.GetString("AgentDbOppUsed");
+            if (used != null)
+            {
+                int link = 0;
+                foreach (string s in used.Split(','))
+                {
+                    string[] up = s.Trim().Split(':');
+                    int uid, uidx;
+                    if (up.Length < 2 || !int.TryParse(up[0], out uid) || !int.TryParse(up[1], out uidx)) continue;
+                    CardEntry uc = db.EnsureCard(uid, true);
+                    EffectEntry ue = uc != null ? uc.Effects.FirstOrDefault(x => x.Index == uidx) : null;
+                    if (ue == null) continue;
+                    db.OnChaining(++link, 1, uid, ue.DescIndex.HasValue ? ((long)uid << 20) | (long)ue.DescIndex.Value : 0);
+                    db.OnChainSolved(link);
+                }
+                db.OnChainEnd();
+            }
+
+            HitKind kind = HitKind.Negate;
+            string hitter = Config.GetString("AgentDbHitter");
+            string hitterName = "무효(가정)";
+            if (hitter != null)
+            {
+                string[] hp = hitter.Split(':');
+                int hid, hidx = -1;
+                CardEntry hc = int.TryParse(hp[0], out hid) ? db.EnsureCard(hid, false) : null;
+                if (hp.Length > 1) int.TryParse(hp[1], out hidx);
+                EffectEntry he = hc == null ? null : hidx >= 0 ? hc.Effects.FirstOrDefault(x => x.Index == hidx)
+                               : hc.Effects.FirstOrDefault(x => db.CanHit(hc, x, c, e) != HitKind.None);
+                kind = he != null ? db.CanHit(hc, he, c, e) : HitKind.None;
+                hitterName = hc != null ? hc.Data.Name + (he != null ? " 효과 " + he.Index : "") : hitter;
+            }
+
+            OpponentLossModel model = new OpponentLossModel(db, w);
+            int deck = db.OpponentMainDeck.Count;
+            int seenCount = seen.Seen.Values.Sum();
+            sb.AppendLine("# 상대 손실 시험 (상대 발동: " + c.Data.Name + " 효과 " + e.Index + ", 우리 응답: " + hitterName + " → " + kind
+                        + ", 상대 필드·묘지: " + seenCount + "장, 일반 소환 " + (z.NormalSummonAvailable ? "가능" : "사용함") + ")");
+            sb.AppendLine();
+            HitLoss first = model.Loss(c, e, kind, z, new OpponentPool { Hidden = deck - seenCount, Hand = 0 });
+            sb.AppendLine("- 연쇄(맞지 않으면 상대가 얻는 값): " + first.Path.Describe());
+            sb.AppendLine();
+            sb.AppendLine("| 상대 모르는 손패 | 연쇄 | 재시작 기대값 | 손실 | 메모 |");
+            sb.AppendLine("|---|---|---|---|---|");
+            for (int h = 0; h <= 7; ++h)
+            {
+                OpponentPool pool = new OpponentPool { Hidden = deck - seenCount, Hand = h };
+                foreach (var kv in seen.Seen) pool.Seen[kv.Key] = kv.Value;
+                HitLoss r = model.Loss(c, e, kind, z, pool);
+                sb.AppendLine("| " + h + " | " + r.Chain.ToString("0.#") + " | " + r.Restart.ToString("0.#") + " | " + r.Loss.ToString("0.#") + " | " + String.Join("; ", r.Notes.ToArray()) + " |");
+            }
+            sb.AppendLine();
+            return sb.ToString();
+        }
+
         public static string DescribeBait(GameCardDb db, ValueWeights w, OpponentPool pool, string set)
         {
             InterruptModel im = new InterruptModel(w);
@@ -334,7 +428,7 @@ namespace WindBot.Agent
 
         public StaticZoneView() { NormalSummonAvailable = true; OpponentFaceUp = -1; }
         public int Materials { get; set; }
-        public int FieldMaterials() { return Materials; }
+        public int FieldMaterials() { return Materials + _monsWithMats.Sum(kv => kv.Value); } // loose materials + those of monsters added with a count
         public int OpponentFaceUp { get; set; }
         public bool CanAttack { get; set; }
         public int OpponentLp { get; set; }

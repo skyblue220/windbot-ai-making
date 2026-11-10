@@ -6,21 +6,26 @@ using YGOSharp.OCGWrapper.Enums;
 
 namespace WindBot.Agent
 {
-    /// <summary>Own card locations read from the live duel state (deck contents stay hidden; the value model derives them).</summary>
+    /// <summary>
+    /// One side's card locations read from the live duel state (deck contents stay hidden; the value model derives them).
+    /// Player 0 = us; player 1 = the opponent, whose hand shows only revealed cards.
+    /// </summary>
     public sealed class DuelZoneView : IZoneView
     {
         private readonly Duel _duel;
         private readonly GameCardDb _db;
+        private readonly int _player;
 
-        public DuelZoneView(Duel duel, GameCardDb db)
+        public DuelZoneView(Duel duel, GameCardDb db, int player = 0)
         {
             _duel = duel;
             _db = db;
+            _player = player;
         }
 
-        private ClientField Self { get { return _duel.Fields != null ? _duel.Fields[0] : null; } }
+        private ClientField Self { get { return _duel.Fields != null ? _duel.Fields[_player] : null; } }
 
-        public bool NormalSummonAvailable { get { return !_db.NormalSummonUsed; } }
+        public bool NormalSummonAvailable { get { return _player == 0 ? !_db.NormalSummonUsed : !_db.OpponentNormalSummonUsed; } }
 
         public int FieldMaterials()
         {
@@ -47,7 +52,7 @@ namespace WindBot.Agent
             }
             foreach (ClientCard c in Self.Graveyard) if (c != null && c.Id != 0) z.Grave.Add(c.Id);
             foreach (ClientCard c in Self.Banished) if (c != null && c.Id != 0) z.Banished.Add(c.Id);
-            ClientField opp = _duel.Fields[1];
+            ClientField opp = _duel.Fields[1 - _player];
             if (opp != null)
             {
                 int up = 0;
