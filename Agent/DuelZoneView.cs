@@ -42,7 +42,11 @@ namespace WindBot.Agent
             if (Self == null || Self.Hand == null) return z;
             foreach (ClientCard c in Self.Hand) if (c != null && c.Id != 0) z.Hand.Add(c.Id);
             foreach (ClientCard c in Self.MonsterZone)
-                if (c != null && c.Id != 0) z.Monsters.Add(new KeyValuePair<int, int>(c.Id, c.Overlays != null ? c.Overlays.Count : 0));
+                if (c != null && c.Id != 0)
+                {
+                    z.Monsters.Add(new KeyValuePair<int, int>(c.Id, c.Overlays != null ? c.Overlays.Count : 0));
+                    z.MonsterMaterials.Add(c.Overlays != null ? new List<int>(c.Overlays) : new List<int>());
+                }
             foreach (ClientCard c in Self.SpellZone)
             {
                 if (c == null || c.Id == 0) continue;

@@ -124,11 +124,13 @@ namespace WindBot.Agent
                     if (list == null) continue;
                     foreach (string s in list.Split(','))
                     {
-                        // Monsters may carry their materials: AgentDbMonsters=7511613:2,34909328:1
+                        // Monsters may carry their materials, as a count or as ids: AgentDbMonsters=7511613:2,34909328:45852939/72238166
                         string[] parts = s.Trim().Split(':');
                         int id, mats;
                         if (!int.TryParse(parts[0], out id)) continue;
-                        if (extra.Key == "MZONE" && parts.Length > 1 && int.TryParse(parts[1], out mats)) zones.AddMonster(id, mats);
+                        if (extra.Key == "MZONE" && parts.Length > 1 && parts[1].Contains("/"))
+                            zones.AddMonster(id, parts[1].Split('/').Select(t => { int v; return int.TryParse(t, out v) ? v : 0; }).ToList());
+                        else if (extra.Key == "MZONE" && parts.Length > 1 && int.TryParse(parts[1], out mats)) zones.AddMonster(id, mats);
                         else zones.Add(extra.Key, id);
                     }
                 }
@@ -189,6 +191,21 @@ namespace WindBot.Agent
                 sb.AppendLine("## 엑스트라 덱 코스트 순서 (낮을수록 먼저 묘지로, 상대 앞면 " + snap.OpponentFaceUp + "장)");
                 foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent && x.InExtraDeck).OrderBy(x => planner.FodderCost(snap, x.Data.Id)))
                     sb.AppendLine("- " + c.Data.Name + ": " + planner.FodderCost(snap, c.Data.Id).ToString("0.##"));
+                sb.AppendLine();
+                // GY payoffs by timing, with the payoff's own key already spent this turn (the case that matters:
+                // used now, fresh again on the opponent's turn and our next). Read only; decisions still use GraveBonus.
+                sb.AppendLine("## 묘지 이득 (이번 턴 사용 후 → 이번 턴 / 상대 턴 / 다음 턴, 원값 × 시점 가중치)");
+                GravePayoffReader gp = new GravePayoffReader(db, model.Weights, planner.HitsFieldCards);
+                foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent && gp.HasPayoff(x.Data.Id)))
+                    foreach (GravePayoff p in gp.Of(c.Data.Id))
+                    {
+                        HashSet<string> used = new HashSet<string>();
+                        if (p.Key != null) used.Add(p.Key);
+                        double raw = planner.PayoffRaw(c, p.Effect, false);
+                        Func<PayoffTiming, string> at = t => GravePayoffReader.Available(p, t, used) ? (raw * gp.TimingWeight(t)).ToString("0.#") : "×";
+                        sb.AppendLine("- " + c.Data.Name + " (" + p.Effect.Index + ") 키 " + (p.Key ?? "없음") + (p.PerDuel ? " 듀얼 1번" : "") + (p.HitsOpponent ? " 상대 카드 대상" : "")
+                            + ": 원값 " + raw.ToString("0.#") + " → " + at(PayoffTiming.Now) + " / " + at(PayoffTiming.OpponentTurn) + " / " + at(PayoffTiming.NextTurn));
+                    }
                 sb.AppendLine();
             }
             if (Config.GetBool("AgentDbInterrupts", hand != null))
@@ -434,11 +451,21 @@ namespace WindBot.Agent
         public int OpponentLp { get; set; }
         public readonly List<OpponentMonster> OpponentMonsters = new List<OpponentMonster>();
         private readonly List<KeyValuePair<int, int>> _monsWithMats = new List<KeyValuePair<int, int>>();
+        private readonly List<List<int>> _matIds = new List<List<int>>();
 
         /// <summary>A monster with its own material count (also counted in the MZONE zone).</summary>
         public void AddMonster(int id, int mats)
         {
             _monsWithMats.Add(new KeyValuePair<int, int>(id, mats));
+            _matIds.Add(new List<int>());
+            Add("MZONE", id);
+        }
+
+        /// <summary>A monster with its materials known by id.</summary>
+        public void AddMonster(int id, List<int> matIds)
+        {
+            _monsWithMats.Add(new KeyValuePair<int, int>(id, matIds.Count));
+            _matIds.Add(matIds);
             Add("MZONE", id);
         }
 
@@ -451,6 +478,7 @@ namespace WindBot.Agent
             Fill(mons, "MZONE");
             foreach (var kv in _monsWithMats) mons.Remove(kv.Key);
             z.Monsters.AddRange(_monsWithMats);
+            z.MonsterMaterials.AddRange(_matIds);
             int mats = Materials;
             foreach (int id in mons) { z.Monsters.Add(new KeyValuePair<int, int>(id, mats)); mats = 0; }
             Fill(z.Spells, "SZONE");

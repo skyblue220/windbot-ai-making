@@ -62,6 +62,9 @@ namespace WindBot.Agent.Knowledge
             { "int.chainproof_bonus", 5 },
             { "int.battle_factor", 0.5 },
             { "int.partial_hold", 0.5 }, // a per-monster removal (Plasma Hole) waits while it would take at most this share of what it could
+            { "gy_payoff.now", 1 },        // a "sent to the GY" payoff firing on our turn (docs/GRAVE_PAYOFF.md)
+            { "gy_payoff.opp_turn", 0.67 }, // the same payoff on the opponent's turn: OPT fresh again but late (learnable)
+            { "gy_payoff.next_turn", 0.3 }, // the same payoff on our next turn: the board may be gone (learnable)
             { "hit.disrupt_body", 10 },  // a hit that destroys the card but lets its effect resolve (Ghost Ogre): the body lost (learnable)
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)

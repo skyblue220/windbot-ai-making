@@ -13,6 +13,8 @@ namespace WindBot.Agent.Knowledge
         public readonly List<int> Hand = new List<int>();
         /// <summary>Monster id and attached material count.</summary>
         public readonly List<KeyValuePair<int, int>> Monsters = new List<KeyValuePair<int, int>>();
+        /// <summary>Attached material ids per monster, index-aligned with Monsters (missing or short = the rest unknown).</summary>
+        public readonly List<List<int>> MonsterMaterials = new List<List<int>>();
         public readonly List<int> Spells = new List<int>();
         /// <summary>Face-down spells that do nothing until activated (field / continuous / normal spells). Set traps and quick-plays stay in Spells.</summary>
         public readonly List<int> SetSpells = new List<int>();
@@ -269,9 +271,15 @@ namespace WindBot.Agent.Knowledge
         private sealed class Mon
         {
             public int Id;
-            public int Mats;
+            /// <summary>Attached materials as card ids, oldest first (0 = a material whose identity is not known).</summary>
+            public List<int> MatIds = new List<int>();
+            public int Mats { get { return MatIds.Count; } }
             public bool Negated;
-            public Mon Clone() { return new Mon { Id = Id, Mats = Mats, Negated = Negated }; }
+            public Mon Clone() { return new Mon { Id = Id, MatIds = new List<int>(MatIds), Negated = Negated }; }
+            /// <summary>Order-free material signature, for state keys and duplicate checks.</summary>
+            public string MatSig() { return String.Join("/", MatIds.OrderBy(x => x).Select(x => x.ToString()).ToArray()); }
+            /// <summary>This monster as a material of a new Xyz: its own materials, then itself.</summary>
+            public IEnumerable<int> AsMaterial() { return MatIds.Concat(new[] { Id }); }
         }
 
         private sealed class St
@@ -320,7 +328,7 @@ namespace WindBot.Agent.Knowledge
                 StringBuilder sb = new StringBuilder();
                 foreach (var kv in Hand.Where(x => x.Value > 0).OrderBy(x => x.Key)) sb.Append(kv.Key).Append('x').Append(kv.Value).Append(',');
                 sb.Append('|');
-                foreach (Mon m in Mons.OrderBy(x => x.Id).ThenBy(x => x.Mats)) sb.Append(m.Id).Append(':').Append(m.Mats).Append(m.Negated ? "n" : "").Append(',');
+                foreach (Mon m in Mons.OrderBy(x => x.Id).ThenBy(x => x.MatSig(), StringComparer.Ordinal)) sb.Append(m.Id).Append(':').Append(m.MatSig()).Append(m.Negated ? "n" : "").Append(',');
                 sb.Append('|');
                 foreach (int i in Spells.OrderBy(x => x)) sb.Append(i).Append(',');
                 foreach (int i in Inactive.OrderBy(x => x)) sb.Append('s').Append(i).Append(',');
@@ -380,7 +388,15 @@ namespace WindBot.Agent.Knowledge
             St s = new St { NS = z.NormalSummonAvailable };
             foreach (int id in z.NoNormalSummon) s.NoNormalSummon.Add(id);
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
-            foreach (var m in z.Monsters) s.Mons.Add(new Mon { Id = m.Key, Mats = m.Value });
+            for (int i = 0; i < z.Monsters.Count; ++i)
+            {
+                // Known material ids where the snapshot has them, unknown (0) for the rest of the count.
+                List<int> known = i < z.MonsterMaterials.Count && z.MonsterMaterials[i] != null ? z.MonsterMaterials[i] : new List<int>();
+                Mon m = new Mon { Id = z.Monsters[i].Key };
+                m.MatIds.AddRange(known.Take(z.Monsters[i].Value));
+                while (m.MatIds.Count < z.Monsters[i].Value) m.MatIds.Add(0);
+                s.Mons.Add(m);
+            }
             s.Spells.AddRange(z.Spells);
             s.Inactive.AddRange(z.SetSpells);
             foreach (int id in z.Grave) s.Add(s.Grave, id, 1);
@@ -535,11 +551,11 @@ namespace WindBot.Agent.Knowledge
                         double cost;
                         List<int> paid;
                         if (!PayCosts(n, c, proc, out cost, out paid)) continue;
-                        Detach(n, null, proc.DetachCount);
+                        List<int> off = Detach(n, null, proc.DetachCount);
                         Mon m = new Mon { Id = id };
                         n.Mons.Add(m);
                         double gain = _w.BaseOf("rule_special_summon") + cost + proc.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(id, proc.Index);
-                        PlanMove rm = new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환" + CostText(paid), Gain = gain };
+                        PlanMove rm = new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환" + CostText(paid) + DetachText(off), Gain = gain };
                         rm.CostIds.AddRange(paid);
                         AddArrival(result, n, m, "SPSUMMON_SUCCESS", rm);
                     }
@@ -634,11 +650,12 @@ namespace WindBot.Agent.Knowledge
                 int need = x.Material.Relation.Contains("× 3") ? 3 : 2;
                 if (mats.Count < need) continue;
                 St n = s.Clone();
+                Mon xm = new Mon { Id = xid };
+                foreach (int i in mats.Take(need)) xm.MatIds.AddRange(s.Mons[i].AsMaterial());
                 foreach (int i in mats.Take(need).OrderByDescending(i => i)) n.Mons.RemoveAt(i); // they become its materials
                 n.Add(n.Extra, xid, -1);
-                Mon xm = new Mon { Id = xid, Mats = need };
                 n.Mons.Add(xm);
-                AddArrival(result, n, xm, "SPSUMMON_SUCCESS", new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환" });
+                AddArrival(result, n, xm, "SPSUMMON_SUCCESS", new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환" + MatText(xm) });
             }
             OverlaySummons(s, result);
             return result;
@@ -693,13 +710,14 @@ namespace WindBot.Agent.Knowledge
                         Mon m = s.Mons[i];
                         int r = Rank(m.Id);
                         if (!IsXyz(m.Id) || m.Id == xid || r > o.RankMax || (o.RankExact >= 0 && r != o.RankExact)) continue;
-                        if (s.Mons.Take(i).Any(y => y.Id == m.Id && y.Mats == m.Mats)) continue; // same monster twice: one branch
+                        if (s.Mons.Take(i).Any(y => y.Id == m.Id && y.MatSig() == m.MatSig())) continue; // same monster twice: one branch
                         St n = s.Clone();
                         n.Mons.RemoveAt(i);
                         n.Add(n.Extra, xid, -1);
                         if (o.OncePerTurn) n.Used.Add(key);
                         if (discard != 0) { n.TakeFromHand(discard); n.Add(n.Grave, discard, 1); }
-                        Mon xm = new Mon { Id = xid, Mats = m.Mats + 1 };
+                        Mon xm = new Mon { Id = xid };
+                        xm.MatIds.AddRange(m.AsMaterial());
                         n.Mons.Add(xm);
                         PlanMove mv = new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환 (" + Name(_db.Get(m.Id)) + " 위" + (discard != 0 ? ", 버림: " + Name(_db.Get(discard)) : "") + ")" };
                         mv.CostIds.Add(m.Id);
@@ -718,13 +736,13 @@ namespace WindBot.Agent.Knowledge
                     HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
                     foreach (List<int> pick in Combinations(g, need))
                     {
-                        string sig = String.Join(",", pick.Select(i => s.Mons[i].Id + ":" + s.Mons[i].Mats).OrderBy(t => t, StringComparer.Ordinal).ToArray());
+                        string sig = String.Join(",", pick.Select(i => s.Mons[i].Id + ":" + s.Mons[i].MatSig()).OrderBy(t => t, StringComparer.Ordinal).ToArray());
                         if (!seen.Add(sig)) continue;
                         St n = s.Clone();
-                        int mats = pick.Sum(i => s.Mons[i].Mats) + need;
+                        Mon xm = new Mon { Id = xid };
+                        foreach (int i in pick) xm.MatIds.AddRange(s.Mons[i].AsMaterial());
                         foreach (int i in pick.OrderByDescending(i => i)) n.Mons.RemoveAt(i);
                         n.Add(n.Extra, xid, -1);
-                        Mon xm = new Mon { Id = xid, Mats = mats };
                         n.Mons.Add(xm);
                         PlanMove mv = new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환 (" + String.Join(" + ", pick.Select(i => Name(_db.Get(s.Mons[i].Id))).ToArray()) + ")" };
                         mv.CostIds.AddRange(pick.Select(i => s.Mons[i].Id));
@@ -879,10 +897,10 @@ namespace WindBot.Agent.Knowledge
             double cost;
             List<int> paid;
             if (!PayCosts(b, c, e, out cost, out paid)) return outs;
-            Detach(b, src != null ? (int?)s.Mons.IndexOf(src) : null, e.DetachCount);
+            List<int> detached = Detach(b, src != null ? (int?)s.Mons.IndexOf(src) : null, e.DetachCount);
 
             double baseGain = cost + e.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(c.Data.Id, e.Index);
-            string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" || kind == "zone" ? "기동" : "발동") + "(" + e.Index + ")" + CostText(paid);
+            string label = Name(c) + " " + (kind == "trigger" ? "유발" : kind == "ignition" || kind == "zone" ? "기동" : "발동") + "(" + e.Index + ")" + CostText(paid) + DetachText(detached);
 
             // Side functions that do not bring a card.
             foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
@@ -891,13 +909,13 @@ namespace WindBot.Agent.Knowledge
                 if (f == "attach_from_grave" && b.GraveMonsters(IsMonsterId) > 0)
                 {
                     Mon to = src != null && IsXyz(src.Id) ? b.Mons[s.Mons.IndexOf(src)] : b.Mons.FirstOrDefault(m => IsXyz(m.Id));
-                    if (to != null) { int gid = b.Grave.First(kv => kv.Value > 0 && IsMonsterId(kv.Key)).Key; b.Add(b.Grave, gid, -1); to.Mats++; baseGain += _w.BaseOf(f); label += " +소재"; }
+                    if (to != null) { int gid = b.Grave.First(kv => kv.Value > 0 && IsMonsterId(kv.Key)).Key; b.Add(b.Grave, gid, -1); to.MatIds.Add(gid); baseGain += _w.BaseOf(f); label += " +소재: " + Name(_db.Get(gid)); }
                 }
                 else if (f == "attach_from_deck")
                 {
                     Mon to = b.Mons.FirstOrDefault(m => IsXyz(m.Id) && _db.Get(m.Id).Data.Level == 4);
                     int did = l.Targets.FirstOrDefault(t => b.Count(b.Deck, t) > 0 && !_w.Excluded.Contains(t));
-                    if (to != null && did != 0) { b.Add(b.Deck, did, -1); to.Mats++; baseGain += _w.BaseOf(f); label += " +덱→소재"; }
+                    if (to != null && did != 0) { b.Add(b.Deck, did, -1); to.MatIds.Add(did); baseGain += _w.BaseOf(f); label += " +덱→소재: " + Name(_db.Get(did)); }
                 }
                 else if (f == "extra_to_grave")
                 {
@@ -1106,17 +1124,24 @@ namespace WindBot.Agent.Knowledge
             foreach (EffectEntry e in c.Effects)
             {
                 if (!e.Kind.StartsWith("유발 효과") || !e.Events.Any(ev => ev.Contains("TO_GRAVE"))) continue;
-                double v = _int.IsInterrupt(c, e) ? _int.Value(c, e, false) : 0;
                 // A negation / removal fired on our own turn needs an opponent's face-up card: with none, it could only hit ours.
-                if (_oppFaceUp == 0 && HitsFieldCards(c, e)) v = 0;
-                foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
-                {
-                    string f = ValueModel.FunctionOf(l);
-                    if (f != null) v = Math.Max(v, _w.BaseOf(f));
-                }
-                best = Math.Max(best, v);
+                best = Math.Max(best, PayoffRaw(c, e, _oppFaceUp == 0));
             }
             return best * _w.BaseOf("grave_fodder");
+        }
+
+        /// <summary>What one "sent to the GY" trigger brings when it fires: its interruption value or its best own function
+        /// (no timing weight; GravePayoffReader applies that). noTargets: the opponent has no face-up card to hit.</summary>
+        public double PayoffRaw(CardEntry c, EffectEntry e, bool noTargets)
+        {
+            double v = _int.IsInterrupt(c, e) ? _int.Value(c, e, false) : 0;
+            if (noTargets && HitsFieldCards(c, e)) v = 0;
+            foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
+            {
+                string f = ValueModel.FunctionOf(l);
+                if (f != null) v = Math.Max(v, _w.BaseOf(f));
+            }
+            return v;
         }
 
         /// <summary>What one material of this monster is worth: the interruption uses it fuels (e.g. Detonator ①), 0 for materials only used as costs this turn.</summary>
@@ -1288,17 +1313,42 @@ namespace WindBot.Agent.Knowledge
             return v;
         }
 
-        private void Detach(St s, int? from, int n)
+        /// <summary>Which material to detach: an unknown one first, then the one whose GY payoff matters least
+        /// (payoff cards stay attached). Provisional: the keep/now choice comes with the GY-payoff values.</summary>
+        private int DetachPick(Mon m)
         {
+            if (m.MatIds.Contains(0)) return 0;
+            return m.MatIds.OrderBy(x => GraveBonus(x)).First();
+        }
+
+        /// <summary>Plan-label text for the materials a move detached.</summary>
+        private string DetachText(List<int> ids)
+        {
+            return ids.Count == 0 ? "" : " [떼기: " + String.Join(", ", ids.Select(x => x == 0 ? "소재" : Name(_db.Get(x))).ToArray()) + "]";
+        }
+
+        /// <summary>Plan-label text for an Xyz monster's materials.</summary>
+        private string MatText(Mon m)
+        {
+            return m.Mats == 0 ? "" : " [소재: " + String.Join(", ", m.MatIds.Select(x => x == 0 ? "?" : Name(_db.Get(x))).ToArray()) + "]";
+        }
+
+        /// <summary>Detaches n materials (into the GY by id) and returns them.</summary>
+        private List<int> Detach(St s, int? from, int n)
+        {
+            List<int> off = new List<int>();
             for (int k = 0; k < n; ++k)
             {
                 // Own materials first; otherwise the monster whose material fuels the least (Duo Drive before Detonator).
                 Mon m = from.HasValue && from.Value < s.Mons.Count && s.Mons[from.Value].Mats > 0 ? s.Mons[from.Value]
                       : s.Mons.Where(x => x.Mats > 0).OrderBy(x => MaterialWorth(x.Id, x.Mats)).ThenByDescending(x => x.Mats).FirstOrDefault();
-                if (m == null) return;
-                m.Mats--;
-                s.Add(s.Grave, 0, 1); // a detached material goes to the GY (identity unknown)
+                if (m == null) return off;
+                int mid = DetachPick(m);
+                off.Add(mid);
+                m.MatIds.Remove(mid);
+                s.Add(s.Grave, mid, 1); // the detached material goes to the GY as itself (0 when unknown)
             }
+            return off;
         }
 
         /// <summary>Existence / absence conditions over our monsters, hand and GY (unparsed ones count as met).</summary>
