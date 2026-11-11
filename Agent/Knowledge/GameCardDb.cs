@@ -144,6 +144,40 @@ namespace WindBot.Agent.Knowledge
         /// </summary>
         public int LockAtkAbove;
         public bool LockBoth;
+        /// <summary>The resolution makes its controller draw each time the other player summons for the rest of the turn (Maxx "C", Mulcharmy).</summary>
+        public DrawWatch DrawWatch;
+    }
+
+    /// <summary>
+    /// "Draw 1 card each time your opponent summons" for the rest of the turn, read from the Lua of the activated effect
+    /// (docs/DRAW_HANDTRAPS.md): continuous field effects on EVENT_SUMMON_SUCCESS / EVENT_SPSUMMON_SUCCESS that call Duel.Draw,
+    /// the summon locations their condition checks (IsSummonLocation), and the End Phase shuffle back of hand cards above
+    /// (the other player's field + N) that caps what the draws are worth (Mulcharmy).
+    /// </summary>
+    public sealed class DrawWatch
+    {
+        public string Card;
+        public bool OnNormal;
+        public bool OnSpecial;
+        /// <summary>Summon locations that count (HAND, DECK, EXTRA, GRAVE...); empty = any.</summary>
+        public readonly List<string> From = new List<string>();
+        /// <summary>End Phase: hand cards beyond (the summoner's field + CapOffset) go back to the deck; -1 = no cap.</summary>
+        public int CapOffset = -1;
+
+        public bool Hits(bool special, string from)
+        {
+            if (special ? !OnSpecial : !OnNormal) return false;
+            return From.Count == 0 || From.Contains(from);
+        }
+
+        public string Describe()
+        {
+            List<string> on = new List<string>();
+            if (OnNormal) on.Add("일반 소환");
+            if (OnSpecial) on.Add("특수 소환");
+            return Card + ": 상대 " + String.Join("/", on.ToArray()) + (From.Count > 0 ? " (" + String.Join("·", From.ToArray()) + "에서)" : "") + "마다 1장 드로우"
+                 + (CapOffset >= 0 ? ", 엔드 페이즈에 패가 (상대 필드 + " + CapOffset + ")장을 넘으면 덱으로" : "");
+        }
     }
 
     /// <summary>
@@ -589,6 +623,41 @@ namespace WindBot.Agent.Knowledge
             return null;
         }
 
+        /// <summary>DrawWatch from the operation and the functions it registers (two levels deep), or null.</summary>
+        private static DrawWatch ReadDrawWatch(CardEntry c, EffectDef def, LuaScript s)
+        {
+            if (def.Operation == null || def.Operation.StartsWith("(inline)")) return null;
+            string op = s.Body(def.Operation) ?? "";
+            if (!op.Contains("Duel.RegisterEffect")) return null;
+            bool normal = op.Contains("EVENT_SUMMON_SUCCESS"), special = op.Contains("EVENT_SPSUMMON_SUCCESS");
+            if (!normal && !special) return null;
+            StringBuilder all = new StringBuilder(op);
+            HashSet<string> seen = new HashSet<string> { def.Operation };
+            List<string> frontier = new List<string> { op };
+            for (int depth = 0; depth < 2; ++depth)
+            {
+                List<string> next = new List<string>();
+                foreach (string text in frontier)
+                    foreach (Match m in Regex.Matches(text, @"s\.(\w+)"))
+                    {
+                        if (!seen.Add(m.Groups[1].Value)) continue;
+                        string body = s.Body(m.Groups[1].Value);
+                        if (body == null) continue;
+                        all.AppendLine(body);
+                        next.Add(body);
+                    }
+                frontier = next;
+            }
+            string t = all.ToString();
+            if (!Regex.IsMatch(t, @"Duel\.Draw\(\s*tp\b")) return null;
+            DrawWatch w = new DrawWatch { Card = c.Data.Name, OnNormal = normal, OnSpecial = special };
+            Match loc = Regex.Match(t, @"IsSummonLocation\(([^)]*)\)");
+            if (loc.Success) w.From.AddRange(Names(loc.Groups[1].Value, "LOCATION_"));
+            Match cap = Regex.Match(t, @"GetFieldGroupCount\(\s*tp\s*,\s*0\s*,\s*LOCATION_ONFIELD\s*\)\s*\+\s*(\d+)");
+            if (cap.Success && t.Contains("SendtoDeck")) w.CapOffset = int.Parse(cap.Groups[1].Value, CultureInfo.InvariantCulture);
+            return w;
+        }
+
         private static string ReadNegateScope(EffectEntry e, EffectDef def, LuaScript s)
         {
             string op = DeepText(s, def.Operation);
@@ -805,6 +874,7 @@ namespace WindBot.Agent.Knowledge
                 e.SourceStop = ReadSourceStop(def, s);
                 e.Reach = ReadRemovalReach(e, def, s);
                 e.Shield = ReadShield(def, s, c);
+                e.DrawWatch = ReadDrawWatch(c, def, s);
                 if ((def.CodeExpr ?? "").Contains("EFFECT_CANNOT_ACTIVATE"))
                 {
                     Match atk = Regex.Match(DeepText(s, def.ValueExpr) + " " + (def.ValueExpr ?? ""), @"IsMonsterEffect\(\)[\s\S]*?IsAttackAbove\((\d+)\)");
@@ -1364,6 +1434,8 @@ namespace WindBot.Agent.Knowledge
             NormalSummonUsed = false;
             OpponentNormalSummonUsed = false;
             TurnEvents.Clear();
+            _drawWatch[0].Clear();
+            _drawWatch[1].Clear();
         }
 
         private static string KeyOf(CardEntry card, EffectEntry e)
@@ -1446,12 +1518,22 @@ namespace WindBot.Agent.Knowledge
             TurnEvents.Add("체인 " + chainLink + ": 효과 무효 (" + Name(l.Card) + ")");
         }
 
+        private readonly List<DrawWatch>[] _drawWatch = { new List<DrawWatch>(), new List<DrawWatch>() };
+
+        /// <summary>"Draw each time the other player summons" effects this player resolved this turn (Maxx "C", Mulcharmy).</summary>
+        public IList<DrawWatch> DrawWatches(int player) { return _drawWatch[player]; }
+
         public void OnChainSolved(int chainLink)
         {
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             KeyUsage u = Usage(l.Player, l.Card, l.Effect);
             if (!l.ActivationNegated && !l.EffectNegated) u.Resolved++;
+            if (!l.ActivationNegated && !l.EffectNegated && l.Effect != null && l.Effect.DrawWatch != null)
+            {
+                _drawWatch[l.Player].Add(l.Effect.DrawWatch);
+                TurnEvents.Add("드로우 감시 시작: " + Who(l.Player) + " " + l.Effect.DrawWatch.Describe());
+            }
             TurnEvents.Add("체인 " + chainLink + ": 처리 (" + Name(l.Card) + (l.ActivationNegated ? ", 발동 무효됨" : l.EffectNegated ? ", 효과 무효됨" : "") + ")");
         }
 

@@ -117,6 +117,20 @@ namespace WindBot.Agent
                     int id;
                     if (int.TryParse(s.Trim(), out id)) zones.Add("HAND", id);
                 }
+                // Optional opponent draw watches already resolved this turn, e.g. AgentDbOppWatch=23434538:1 (Maxx "C"), and their hand size.
+                string watch = Config.GetString("AgentDbOppWatch");
+                if (watch != null)
+                    foreach (string s in watch.Split(','))
+                    {
+                        string[] wp = s.Trim().Split(':');
+                        int wid, widx;
+                        if (wp.Length < 2 || !int.TryParse(wp[0], out wid) || !int.TryParse(wp[1], out widx)) continue;
+                        CardEntry wc = db.EnsureCard(wid, true);
+                        EffectEntry we = wc != null ? wc.Effects.FirstOrDefault(e => e.Index == widx) : null;
+                        if (we != null && we.DrawWatch != null) zones.OppDrawWatch.Add(we.DrawWatch);
+                        sb.AppendLine("- 상대 드로우 감시: " + (we != null && we.DrawWatch != null ? we.DrawWatch.Describe() : s + " (드로우 감시 효과 아님)"));
+                    }
+                zones.OpponentHand = Config.GetInt("AgentDbOppHand", -1);
                 // Optional GY and face-up spells for the test, e.g. AgentDbGrave=35844557,34022970 AgentDbSpells=6798031
                 foreach (var extra in new[] { new KeyValuePair<string, string>("GRAVE", "AgentDbGrave"), new KeyValuePair<string, string>("SZONE", "AgentDbSpells"), new KeyValuePair<string, string>("MZONE", "AgentDbMonsters") })
                 {
@@ -714,9 +728,13 @@ namespace WindBot.Agent
             Add("MZONE", id);
         }
 
+        public readonly List<DrawWatch> OppDrawWatch = new List<DrawWatch>();
+        public int OpponentHand = -1;
+
         public ZoneSnapshot Snapshot()
         {
-            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable, OpponentFaceUp = OpponentFaceUp, CanAttack = CanAttack, OpponentLp = OpponentLp > 0 ? OpponentLp : 8000 };
+            ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable, OpponentFaceUp = OpponentFaceUp, CanAttack = CanAttack, OpponentLp = OpponentLp > 0 ? OpponentLp : 8000, OpponentHand = OpponentHand };
+            z.OpponentDrawWatch.AddRange(OppDrawWatch);
             z.OpponentMonsters.AddRange(OpponentMonsters);
             Fill(z.Hand, "HAND");
             List<int> mons = new List<int>();

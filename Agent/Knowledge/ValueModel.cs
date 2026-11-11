@@ -25,6 +25,7 @@ namespace WindBot.Agent.Knowledge
             { "search", 30 },
             { "set_from_deck", 30 },
             { "draw", 25 },
+            { "opp.draw_card", 25 },     // a card the opponent draws from our summon (Maxx "C", Mulcharmy): a card to them is worth what one is to us (draw) (learnable)
             { "rule_special_summon", 20 },
             { "extra_normal_summon", 20 }, // provisional: a summon from hand that keeps the turn's Normal Summon (e.g. Sakitama)
             { "grave_to_deck", 10 },

@@ -63,7 +63,9 @@ namespace WindBot.Agent
                 foreach (ClientCard c in opp.MonsterZone) if (c != null && c.IsFaceup()) up++;
                 foreach (ClientCard c in opp.SpellZone) if (c != null && c.IsFaceup()) up++;
                 z.OpponentFaceUp = up;
+                z.OpponentHand = opp.Hand != null ? opp.Hand.Count : -1;
             }
+            z.OpponentDrawWatch.AddRange(_db.DrawWatches(1 - _player));
             return z;
         }
 

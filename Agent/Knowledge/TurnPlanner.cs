@@ -32,6 +32,10 @@ namespace WindBot.Agent.Knowledge
         public int OpponentGraveXyzRanks;
         /// <summary>Cards an earlier effect forbids us to Normal Summon (Lightning Crash's searched name).</summary>
         public readonly HashSet<int> NoNormalSummon = new HashSet<int>();
+        /// <summary>The opponent's "draw each time you summon" effects active this turn (Maxx "C", Mulcharmy).</summary>
+        public readonly List<DrawWatch> OpponentDrawWatch = new List<DrawWatch>();
+        /// <summary>Cards in the opponent's hand (-1 not known): what a Mulcharmy End Phase shuffle leaves them.</summary>
+        public int OpponentHand = -1;
     }
 
     /// <summary>An opponent's monster as the planner's battle term sees it.</summary>
@@ -207,6 +211,9 @@ namespace WindBot.Agent.Knowledge
         public double BattleValue;
         public readonly List<string> Battle = new List<string>();
         public int HandSpent;
+        /// <summary>Cards the opponent draws from our summons under Maxx "C" / Mulcharmy (after the End Phase shuffle cap), and their cost.</summary>
+        public int OppDraws;
+        public double OppDrawCost;
         /// <summary>The search budget ran out somewhere below this result, so it may be an underestimate (not memoised).</summary>
         public bool Truncated;
         public readonly List<PlanMove> Moves = new List<PlanMove>();
@@ -220,7 +227,9 @@ namespace WindBot.Agent.Knowledge
               .Append(" + 턴 종료 방해 ").Append(EndValue.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" + 후속 ").Append(FollowValue.ToString("0.#", CultureInfo.InvariantCulture));
             if (BattleValue != 0) sb.Append(" + 전투 ").Append(BattleValue.ToString("0.#", CultureInfo.InvariantCulture));
-            sb.Append(" − 효율 ").Append(HandSpent).Append("장)");
+            sb.Append(" − 효율 ").Append(HandSpent).Append("장");
+            if (OppDraws > 0 || OppDrawCost > 0) sb.Append(" − 상대 드로우 ").Append(OppDraws).Append("장 ").Append(OppDrawCost.ToString("0.#", CultureInfo.InvariantCulture));
+            sb.Append(")");
             if (Moves.Count > 0) sb.Append(" 행동: ").Append(String.Join(" → ", Moves.Select(m => m.Text).ToArray()));
             if (EndBoard.Count > 0) sb.Append(" | 방해: ").Append(String.Join(", ", EndBoard.ToArray()));
             if (Battle.Count > 0) sb.Append(" | 전투: ").Append(String.Join(", ", Battle.ToArray()));
@@ -341,6 +350,8 @@ namespace WindBot.Agent.Knowledge
             public int HandSpent;
             /// <summary>Cards drawn by our effects this turn (unknown cards: valued by the deck's expected draw at the end).</summary>
             public int Draws;
+            /// <summary>Cards each active opponent draw watch (index-aligned with the planner's _drawWatch) has drawn from our summons.</summary>
+            public int[] OppDraws = new int[0];
             /// <summary>Cards put on the bottom of the deck: searchable again, not drawn.</summary>
             public List<int> Bottom = new List<int>();
             /// <summary>End-of-turn worth already fixed by a move (e.g. a card returned to the deck refuels a search next turn).</summary>
@@ -348,7 +359,7 @@ namespace WindBot.Agent.Knowledge
 
             public St Clone()
             {
-                St s = new St { NS = NS, HandSpent = HandSpent, Draws = Draws, Bonus = Bonus, ExtraRank = ExtraRank, AttackRank = AttackRank };
+                St s = new St { NS = NS, HandSpent = HandSpent, Draws = Draws, Bonus = Bonus, ExtraRank = ExtraRank, AttackRank = AttackRank, OppDraws = (int[])OppDraws.Clone() };
                 s.Bottom.AddRange(Bottom);
                 foreach (var kv in Hand) s.Hand[kv.Key] = kv.Value;
                 foreach (var kv in Orig) s.Orig[kv.Key] = kv.Value;
@@ -384,6 +395,7 @@ namespace WindBot.Agent.Knowledge
                 sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent).Append('|').Append(Draws).Append('|').Append(ExtraRank).Append('/').Append(AttackRank);
                 foreach (int i in Bottom.OrderBy(x => x)) sb.Append('b').Append(i);
                 foreach (int i in NoNormalSummon.OrderBy(x => x)) sb.Append('!').Append(i);
+                foreach (int d in OppDraws) sb.Append('o').Append(d);
                 return sb.ToString();
             }
 
@@ -422,6 +434,9 @@ namespace WindBot.Agent.Knowledge
         private bool _canAttack;
         private int _ownLp = 8000, _oppLp = 8000, _oppGraveRanks;
         private List<OpponentMonster> _oppMons = new List<OpponentMonster>();
+        /// <summary>The opponent's draw watches this turn (Maxx "C", Mulcharmy) and their hand size (Mulcharmy's End Phase cap).</summary>
+        private List<DrawWatch> _drawWatch = new List<DrawWatch>();
+        private int _oppHand = -1;
 
         private St FromSnapshot(ZoneSnapshot z, GameCardDb db)
         {
@@ -432,7 +447,9 @@ namespace WindBot.Agent.Knowledge
             _oppLp = z.OpponentLp;
             _oppGraveRanks = z.OpponentGraveXyzRanks;
             _oppMons = z.OpponentMonsters.Select(x => x.Clone()).ToList();
-            St s = new St { NS = z.NormalSummonAvailable };
+            _drawWatch = z.OpponentDrawWatch.ToList();
+            _oppHand = z.OpponentHand;
+            St s = new St { NS = z.NormalSummonAvailable, OppDraws = new int[_drawWatch.Count] };
             foreach (int id in z.NoNormalSummon) s.NoNormalSummon.Add(id);
             foreach (int id in z.Hand) { s.Add(s.Hand, id, 1); s.Add(s.Orig, id, 1); }
             for (int i = 0; i < z.Monsters.Count; ++i)
@@ -679,7 +696,7 @@ namespace WindBot.Agent.Knowledge
 
         private PlanResult Search(St s, int k, int hintAt = -1)
         {
-            string key = k + "#" + s.Key();
+            string key = k + "#" + _drawWatch.Count + "#" + s.Key();
             PlanResult cached;
             if (_memo.D.TryGetValue(key, out cached)) return cached;
             PlanResult best = StopResult(s);
@@ -729,10 +746,12 @@ namespace WindBot.Agent.Knowledge
             r.FollowValue = rest.FollowValue;
             r.BattleValue = rest.BattleValue;
             r.HandSpent = rest.HandSpent;
+            r.OppDraws = rest.OppDraws;
+            r.OppDrawCost = rest.OppDrawCost;
             r.Truncated = rest.Truncated;
             r.EndBoard.AddRange(rest.EndBoard);
             r.Battle.AddRange(rest.Battle);
-            r.Value = r.FlowValue + r.EndValue + r.FollowValue + r.BattleValue - _w.EfficiencyPerHandCard * r.HandSpent;
+            r.Value = r.FlowValue + r.EndValue + r.FollowValue + r.BattleValue - _w.EfficiencyPerHandCard * r.HandSpent - r.OppDrawCost;
             return r;
         }
 
@@ -743,7 +762,8 @@ namespace WindBot.Agent.Knowledge
             r.FollowValue = FollowTerm(s) + s.Bonus + s.Draws * DrawExpect(s);
             r.BattleValue = BattleTerm(s, r.Battle);
             r.HandSpent = s.HandSpent;
-            r.Value = r.EndValue + r.FollowValue + r.BattleValue - _w.EfficiencyPerHandCard * s.HandSpent;
+            r.OppDrawCost = OppDrawCost(s, out r.OppDraws);
+            r.Value = r.EndValue + r.FollowValue + r.BattleValue - _w.EfficiencyPerHandCard * s.HandSpent - r.OppDrawCost;
             return r;
         }
 
@@ -766,7 +786,7 @@ namespace WindBot.Agent.Knowledge
                         n.TakeFromHand(id);
                         Mon m = new Mon { Id = id };
                         n.Mons.Add(m);
-                        AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "ns", CardId = id, Text = Name(c) + " 일반 소환" });
+                        AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "ns", CardId = id, Text = Name(c) + " 일반 소환" }, "HAND");
                     }
                     // Rule summon from hand
                     EffectEntry proc = c.Effects.FirstOrDefault(e => e.Kind.StartsWith("룰") && (e.Range == null || e.Range.Contains("HAND")));
@@ -786,7 +806,7 @@ namespace WindBot.Agent.Knowledge
                         double gain = _w.BaseOf("rule_special_summon") + cost + fired + proc.DetachCount * _w.BaseOf("cost_detach") + _w.OffsetOf(id, proc.Index);
                         PlanMove rm = new PlanMove { Kind = "rule", CardId = id, EffectIndex = proc.Index, Text = Name(c) + " 룰 특수 소환" + CostText(paid) + DetachText(off), Gain = gain };
                         rm.CostIds.AddRange(paid);
-                        AddArrival(result, n, m, "SPSUMMON_SUCCESS", rm);
+                        AddArrival(result, n, m, "SPSUMMON_SUCCESS", rm, "HAND");
                     }
                     // Hand ignition effects that Normal Summon a monster from the hand without using the turn's Normal Summon
                     foreach (EffectEntry e in c.Effects.Where(x => x.Kind.StartsWith("기동") && x.Range != null && x.Range.Contains("HAND") && x.Categories.Contains("SUMMON")))
@@ -805,7 +825,7 @@ namespace WindBot.Agent.Knowledge
                             Mon m = new Mon { Id = t };
                             n.Mons.Add(m);
                             double gain = _w.BaseOf("extra_normal_summon") + _w.OffsetOf(id, e.Index);
-                            AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "hand", CardId = id, EffectIndex = e.Index, TargetId = t, Text = Name(c) + " 기동(" + e.Index + ") → " + Name(tc) + " 추가 일반 소환", Gain = gain });
+                            AddArrival(result, n, m, "SUMMON_SUCCESS", new PlanMove { Kind = "hand", CardId = id, EffectIndex = e.Index, TargetId = t, Text = Name(c) + " 기동(" + e.Index + ") → " + Name(tc) + " 추가 일반 소환", Gain = gain }, "HAND");
                         }
                     }
                 }
@@ -891,7 +911,7 @@ namespace WindBot.Agent.Knowledge
                 foreach (int i in mats.Take(need).OrderByDescending(i => i)) n.Mons.RemoveAt(i); // they become its materials
                 n.Add(n.Extra, xid, -1);
                 n.Mons.Add(xm);
-                AddArrival(result, n, xm, "SPSUMMON_SUCCESS", new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환" + MatText(xm) });
+                AddArrival(result, n, xm, "SPSUMMON_SUCCESS", new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환" + MatText(xm) }, "EXTRA");
             }
         }
 
@@ -990,7 +1010,7 @@ namespace WindBot.Agent.Knowledge
                         PlanMove mv = new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환 (" + Name(_db.Get(m.Id)) + " 위" + (discard != 0 ? ", 버림: " + Name(_db.Get(discard)) : "") + ")" };
                         mv.CostIds.Add(m.Id);
                         if (discard != 0) mv.CostIds.Add(discard);
-                        AddArrival(result, n, xm, "SPSUMMON_SUCCESS", mv);
+                        AddArrival(result, n, xm, "SPSUMMON_SUCCESS", mv, "EXTRA");
                     }
                 }
             xyzOfXyz:
@@ -1014,7 +1034,7 @@ namespace WindBot.Agent.Knowledge
                         n.Mons.Add(xm);
                         PlanMove mv = new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환 (" + String.Join(" + ", pick.Select(i => Name(_db.Get(s.Mons[i].Id))).ToArray()) + ")" };
                         mv.CostIds.AddRange(pick.Select(i => s.Mons[i].Id));
-                        AddArrival(result, n, xm, "SPSUMMON_SUCCESS", mv);
+                        AddArrival(result, n, xm, "SPSUMMON_SUCCESS", mv, "EXTRA");
                     }
                 }
             }
@@ -1134,8 +1154,34 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>After a monster arrives: the move alone, or the move followed by one of its triggers.</summary>
-        private void AddArrival(List<KeyValuePair<List<PlanMove>, St>> result, St n, Mon m, string ev, PlanMove main)
+        /// <summary>
+        /// The opponent's cards drawn from our summons this line (docs/DRAW_HANDTRAPS.md), each × opp.draw_card. A Mulcharmy
+        /// shuffles their hand beyond (our field at the end + N) back in the End Phase: its draws count only up to that room.
+        /// </summary>
+        private double OppDrawCost(St s, out int cards)
         {
+            cards = 0;
+            int field = s.Mons.Count + s.Spells.Count + s.Inactive.Count;
+            for (int i = 0; i < s.OppDraws.Length && i < _drawWatch.Count; ++i)
+            {
+                int d = s.OppDraws[i];
+                DrawWatch w = _drawWatch[i];
+                if (w.CapOffset >= 0 && _oppHand >= 0) d = Math.Min(d, Math.Max(0, field + w.CapOffset - _oppHand));
+                cards += d;
+            }
+            return cards * _w.BaseOf("opp.draw_card");
+        }
+
+        /// <summary>A monster we summon arrives: every opponent draw watch it triggers draws them 1 (one per summon, as the Lua does).</summary>
+        private void CountOppDraw(St n, bool special, string from)
+        {
+            for (int i = 0; i < _drawWatch.Count && i < n.OppDraws.Length; ++i)
+                if (_drawWatch[i].Hits(special, from)) n.OppDraws[i]++;
+        }
+
+        private void AddArrival(List<KeyValuePair<List<PlanMove>, St>> result, St n, Mon m, string ev, PlanMove main, string from)
+        {
+            CountOppDraw(n, ev == "SPSUMMON_SUCCESS", from);
             result.Add(new KeyValuePair<List<PlanMove>, St>(new List<PlanMove> { main }, n));
             CardEntry c = _db.Get(m.Id);
             if (c == null || m.Negated) return;
@@ -1261,7 +1307,7 @@ namespace WindBot.Agent.Knowledge
                     Mon m = new Mon { Id = t, Negated = e.SummonsNegated };
                     n.Mons.Add(m);
                     List<KeyValuePair<List<PlanMove>, St>> arr = new List<KeyValuePair<List<PlanMove>, St>>();
-                    AddArrival(arr, n, m, "SPSUMMON_SUCCESS", mv);
+                    AddArrival(arr, n, m, "SPSUMMON_SUCCESS", mv, fromDeck ? "DECK" : "GRAVE");
                     outs.AddRange(arr);
                 }
             }
