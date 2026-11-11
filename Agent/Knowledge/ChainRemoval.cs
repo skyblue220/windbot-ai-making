@@ -17,6 +17,8 @@ namespace WindBot.Agent.Knowledge
         public EffectEntry Chained;
         /// <summary>That chain link is the latest one (the link a response like Ghost Ogre answers).</summary>
         public bool LastLink;
+        /// <summary>Xyz materials attached to it (a detach cost of its own response needs them); -1 = not known, use the field total.</summary>
+        public int Materials = -1;
         /// <summary>Caller's handle (a ClientCard in the bridge, an index in the dump).</summary>
         public object Tag;
     }
@@ -41,13 +43,19 @@ namespace WindBot.Agent.Knowledge
         public double Gain;
         public double Hold;
         public int Max;
+        /// <summary>Detach uses left this turn that the hold was scaled by (0: not scaled).</summary>
+        public int UsesLeft;
         public readonly List<KeyValuePair<RemovalTarget, RemovalWorth>> Picks = new List<KeyValuePair<RemovalTarget, RemovalWorth>>();
+        /// <summary>Cards it could otherwise reach that a protection keeps out (name + reason).</summary>
+        public readonly List<string> Blocked = new List<string>();
         public bool Fire { get { return Gain > Hold; } }
 
         public string Describe()
         {
             return (Fire ? "발동" : "보류") + ": 얻는 값 " + RemovalWorth.F(Gain) + " vs 아껴 둘 값 " + RemovalWorth.F(Hold)
-                 + (Picks.Count > 0 ? " (최대 " + Max + "장)" : " (칠 카드 없음)");
+                 + (UsesLeft > 0 ? " (이번 턴 남은 사용 " + UsesLeft + "회)" : "")
+                 + (Picks.Count > 0 ? " (최대 " + Max + "장)" : " (칠 카드 없음)")
+                 + (Blocked.Count > 0 ? "; 보호로 못 침: " + String.Join(", ", Blocked.ToArray()) : "");
         }
     }
 
@@ -132,6 +140,14 @@ namespace WindBot.Agent.Knowledge
                         if (stat > r.Body) { r.Body = stat; r.Notes.Add("필드에 남는 마법·함정: 카드 가치 " + RemovalWorth.F(stat)); }
                     }
                 }
+                else if ((c.Data.Type & 0x1) != 0)
+                {
+                    // A monster with nothing to use from the field (a main deck Ryzeal after its search): its effects are spent or
+                    // resolve anyway, so what is left is a body and, with a Level, Xyz material. Not its hand worth (a plan from hand).
+                    bool material = c.Data.Level > 0 && (c.Data.Type & (0x40 | 0x2000 | 0x800000 | 0x4000000)) == 0;
+                    r.Body = _w.BaseOf("removal.body") + (material ? _w.BaseOf("removal.material") : 0);
+                    r.Notes.Add(material ? "필드에서 쓰는 효과 없음: 몸체 + 엑시즈 소재" : "필드에서 쓰는 효과 없음: 몸체");
+                }
                 else
                 {
                     r.Body = StaticWorth != null ? Math.Max(0, StaticWorth(t.Id)) : 0;
@@ -171,16 +187,102 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>
+        /// A protection on the opponent's field stops this removal on t (docs/CHAIN_REMOVAL.md 2): "cannot be targeted" against a
+        /// targeting removal, "cannot be destroyed" against a destroy; on t itself (single) or from another face-up card of theirs
+        /// over the rest of their field (Number F0 ④). Returns the reason, or null when t can be taken.
+        /// </summary>
+        public string Shielded(EffectEntry e, RemovalTarget t, IList<RemovalTarget> all)
+        {
+            if (e.Reach == null || !t.Theirs) return null;
+            foreach (RemovalTarget s in all)
+            {
+                if (!s.Theirs || !s.FaceUp || s.Id == 0) continue;
+                CardEntry sc = _db.EnsureCard(s.Id, true);
+                if (sc == null) continue;
+                foreach (EffectEntry se in sc.Effects)
+                {
+                    CardShield sh = se.Shield;
+                    if (sh == null) continue;
+                    if (se.Range != null && !(s.Monster ? se.Range.Contains("MZONE") : se.Range.Contains("SZONE") || se.Range.Contains("FZONE"))) continue;
+                    if (sh.What == "target" ? !e.Reach.Targets : !e.Reach.Destroys) continue;
+                    bool self = ReferenceEquals(s, t) || (s.Tag != null && ReferenceEquals(s.Tag, t.Tag));
+                    if (self ? sh.Self : sh.Others)
+                        return sc.Data.Name + " 효과 " + se.Index + ": " + sh.Describe();
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// t can answer this removal with an unused quick effect that makes itself indestructible (Number F0 ⑤): a destroy
+        /// would do nothing. Returns that effect, or null.
+        /// </summary>
+        public EffectEntry SelfGuard(CardEntry c, EffectEntry e, RemovalTarget t, IZoneView z)
+        {
+            if (e != null && (e.Reach == null || !e.Reach.Destroys)) return null;
+            if (!t.Theirs || !t.FaceUp || t.Id == 0) return null;
+            CardEntry tc = _db.EnsureCard(t.Id, true);
+            if (tc == null) return null;
+            foreach (EffectEntry g in tc.Effects)
+            {
+                if (!g.GuardsSelf) continue;
+                if (g.Range != null && !(t.Monster ? g.Range.Contains("MZONE") : g.Range.Contains("SZONE") || g.Range.Contains("FZONE"))) continue;
+                KeyUsage u = _db.PeekUsage(1, g);
+                if (u != null && g.Limit != null && u.Used >= g.Limit.Count) continue;
+                int mats = t.Materials >= 0 ? t.Materials : z.FieldMaterials();
+                if (g.DetachCount > mats) continue;
+                if (c != null && e != null && g.Response != null && _db.CanHit(tc, g, c, e) == HitKind.None) continue;
+                return g;
+            }
+            return null;
+        }
+
+        /// <summary>WorthNow with t's self-protecting response counted: a destroy it can dodge is worth removal.self_guard of it.</summary>
+        public RemovalWorth WorthAgainst(CardEntry c, EffectEntry e, RemovalTarget t, IZoneView z, bool theirTurn, bool destroys)
+        {
+            RemovalWorth w = WorthNow(t, z, theirTurn);
+            EffectEntry g = destroys ? SelfGuard(c, e, t, z) : null;
+            if (g != null && w.Value > 0)
+            {
+                double f = _w.BaseOf("removal.self_guard");
+                w.Value *= f;
+                w.Notes.Add("효과 " + g.Index + "로 응답해 파괴 내성 (×" + RemovalWorth.F(f) + ")");
+            }
+            return w;
+        }
+
+        /// <summary>
         /// Fire now or keep: the best <paramref name="max"/> reachable targets' WorthNow against what the removal is worth kept
         /// for a later window (its interruption value × removal.hold, the cost a detach or a set card pays).
         /// </summary>
-        public RemovalChoice Choose(CardEntry c, EffectEntry e, bool inHand, IEnumerable<RemovalTarget> targets, int max, IZoneView z, bool theirTurn)
+        /// <param name="usesLeft">
+        /// Uses of this removal left on our field this turn for one paid by detaching (Detonator ①: materials / detach over our
+        /// copies); -1 when not known or the removal is a single card. The fewer are left, the more a use is worth keeping for a
+        /// bigger target later this turn: hold × max(1, removal.reserve / usesLeft).
+        /// </param>
+        public RemovalChoice Choose(CardEntry c, EffectEntry e, bool inHand, IEnumerable<RemovalTarget> targets, int max, IZoneView z, bool theirTurn, int usesLeft = -1)
         {
             RemovalChoice r = new RemovalChoice { Max = Math.Max(1, max) };
             r.Hold = _im.Value(c, e, inHand) * _w.BaseOf("removal.hold");
+            if (e.DetachCount > 0 && usesLeft > 0)
+            {
+                double scarce = Math.Max(1, _w.BaseOf("removal.reserve") / usesLeft);
+                r.Hold *= scarce;
+                r.UsesLeft = usesLeft;
+            }
             // A response that hits the answered card (Ghost Ogre) also needs that effect to be one it can answer (CanHit).
-            var scored = targets.Where(t => CanReach(e, t) && !LeavesNow(t) && (!e.Reach.ChainCard || _db.CanHit(c, e, _db.EnsureCard(t.Id, true), t.Chained) != HitKind.None)).Select(t => new KeyValuePair<RemovalTarget, RemovalWorth>(t, WorthNow(t, z, theirTurn)))
-                                .Where(kv => kv.Value.Value > 0).OrderByDescending(kv => kv.Value.Value).Take(r.Max).ToList();
+            IList<RemovalTarget> all = targets as IList<RemovalTarget> ?? targets.ToList();
+            var scored = new List<KeyValuePair<RemovalTarget, RemovalWorth>>();
+            foreach (RemovalTarget t in all)
+            {
+                if (!CanReach(e, t) || LeavesNow(t)) continue;
+                if (e.Reach.ChainCard && _db.CanHit(c, e, _db.EnsureCard(t.Id, true), t.Chained) == HitKind.None) continue;
+                string shield = Shielded(e, t, all);
+                if (shield != null) { r.Blocked.Add((t.Id != 0 && _db.Get(t.Id) != null ? _db.Get(t.Id).Data.Name : "뒷면") + " (" + shield + ")"); continue; }
+                RemovalWorth w = WorthAgainst(c, e, t, z, theirTurn, e.Reach.Destroys);
+                if (w.Value > 0) scored.Add(new KeyValuePair<RemovalTarget, RemovalWorth>(t, w));
+            }
+            scored = scored.OrderByDescending(kv => kv.Value.Value).Take(r.Max).ToList();
             r.Picks.AddRange(scored);
             r.Gain = scored.Sum(kv => kv.Value.Value);
             return r;

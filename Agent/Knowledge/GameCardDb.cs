@@ -134,6 +134,28 @@ namespace WindBot.Agent.Knowledge
         public string SourceStop;
         /// <summary>Which cards this removal can hit, read from its target / operation functions (null when it removes nothing on the field).</summary>
         public RemovalReach Reach;
+        /// <summary>A standing protection this effect gives (cannot be targeted / destroyed by the opponent's card effects), or null.</summary>
+        public CardShield Shield;
+        /// <summary>The resolution makes its own card indestructible by card effects (Number F0 ⑤): a response that saves it from a destroy.</summary>
+        public bool GuardsSelf;
+    }
+
+    /// <summary>
+    /// A protection read from Lua (docs/CHAIN_REMOVAL.md 2): EFFECT_CANNOT_BE_EFFECT_TARGET or EFFECT_INDESTRUCTABLE_EFFECT,
+    /// on the card itself (single) or on the other cards of its controller's field (field, target "c~=e:GetHandler()").
+    /// Only unconditional ones with a filter we can read are kept.
+    /// </summary>
+    public sealed class CardShield
+    {
+        /// <summary>"target" (cannot be targeted) or "destroy" (cannot be destroyed).</summary>
+        public string What;
+        public bool Self;
+        public bool Others;
+
+        public string Describe()
+        {
+            return (What == "target" ? "효과 대상 불가" : "효과 파괴 불가") + " (" + (Self && Others ? "자신과 다른 카드" : Self ? "자신" : "자기 필드의 다른 카드") + ")";
+        }
     }
 
     /// <summary>The cards a destroy / banish / bounce effect can take (docs/CHAIN_REMOVAL.md 2).</summary>
@@ -146,6 +168,10 @@ namespace WindBot.Agent.Knowledge
         public bool MonsterOnly;
         /// <summary>Only the opponent's cards (otherwise ours are legal too, e.g. Detonator ①).</summary>
         public bool OpponentOnly;
+        /// <summary>Targets (EFFECT_FLAG_CARD_TARGET): a "cannot be targeted" protection stops it.</summary>
+        public bool Targets;
+        /// <summary>Destroys (rather than banishes / bounces): an "indestructible" protection stops it.</summary>
+        public bool Destroys;
 
         public string Describe()
         {
@@ -155,6 +181,8 @@ namespace WindBot.Agent.Knowledge
             if (SpellTrapOnly) p.Add("마법·함정");
             if (MonsterOnly) p.Add("몬스터");
             p.Add(OpponentOnly ? "상대 카드만" : "양쪽");
+            if (Targets) p.Add("대상 지정");
+            if (Destroys) p.Add("파괴");
             return String.Join(", ", p.ToArray());
         }
     }
@@ -505,6 +533,8 @@ namespace WindBot.Agent.Knowledge
             bool removes = e.Categories.Contains("DESTROY") || e.Categories.Contains("REMOVE") || e.Categories.Contains("TOHAND") || e.Categories.Contains("TODECK");
             if (!removes || e.Categories.Contains("SEARCH")) return null;
             RemovalReach r = new RemovalReach();
+            r.Targets = def.PropertyExpr != null && def.PropertyExpr.Contains("EFFECT_FLAG_CARD_TARGET");
+            r.Destroys = e.Categories.Contains("DESTROY");
             string op = DeepText(s, def.Operation);
             if (e.Events.Any(x => x == "CHAINING") && Regex.IsMatch(op, @"Duel\.(Destroy|Remove|SendtoHand|SendtoDeck)\(\s*(eg|re:GetHandler\(\))"))
             {
@@ -528,6 +558,29 @@ namespace WindBot.Agent.Knowledge
             else if (test.Contains("IsMonster") || test.Contains("IsLocation(LOCATION_MZONE)")) r.MonsterOnly = true;
             if (test.Contains("IsControler(1-tp)")) r.OpponentOnly = true;
             return r;
+        }
+
+        /// <summary>
+        /// A standing "cannot be targeted / destroyed by card effects" protection: single on the card itself, or field over its
+        /// controller's side with the target "c~=e:GetHandler()" (Number F0 ④: every other card on the field). Conditional ones and
+        /// filters we cannot read (e.g. "Traptrix" monsters only) are skipped and noted on the card.
+        /// </summary>
+        private static CardShield ReadShield(EffectDef def, LuaScript s, CardEntry c)
+        {
+            string code = def.CodeExpr ?? "";
+            string what = code.Contains("EFFECT_CANNOT_BE_EFFECT_TARGET") ? "target" : code.Contains("EFFECT_INDESTRUCTABLE_EFFECT") ? "destroy" : null;
+            if (what == null) return null;
+            List<string> type = Names(def.TypeExpr, "EFFECT_TYPE_");
+            if (def.Condition != null) { c.Notes.Add("조건부 보호 미반영: " + code); return null; }
+            if (type.Contains("SINGLE")) return new CardShield { What = what, Self = true };
+            if (!type.Contains("FIELD") || def.TargetRangeExpr == null) return null;
+            string own = def.TargetRangeExpr.Split(',')[0].Trim();
+            if (own == "0") return null;
+            string tg = DeepText(s, def.Target).Replace("(inline)", "").Trim();
+            if (Regex.IsMatch(tg, @"^function\s*\(\s*e\s*,\s*c\s*\)\s*return\s+c\s*~=\s*e:GetHandler\(\)\s*end\)?$"))
+                return new CardShield { What = what, Others = true };
+            c.Notes.Add("보호 대상 필터 미해석: " + code + " " + tg);
+            return null;
         }
 
         private static string ReadNegateScope(EffectEntry e, EffectDef def, LuaScript s)
@@ -745,6 +798,8 @@ namespace WindBot.Agent.Knowledge
                 e.Response = ReadResponse(e, def, s);
                 e.SourceStop = ReadSourceStop(def, s);
                 e.Reach = ReadRemovalReach(e, def, s);
+                e.Shield = ReadShield(def, s, c);
+                e.GuardsSelf = e.Kind == "유발 즉시 효과" && Regex.IsMatch(DeepText(s, def.Operation), @"EFFECT_INDESTRUCTABLE_EFFECT[\s\S]*?(?<![\w.])c:RegisterEffect\(");
                 AddLinks(e, s, def);
                 ReadProfile(c, e);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })

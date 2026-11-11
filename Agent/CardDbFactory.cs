@@ -387,9 +387,10 @@ namespace WindBot.Agent
                 if (x == 0) { targets.Add(new RemovalTarget { Id = 0, FaceUp = false }); continue; }
                 CardEntry xc = db.EnsureCard(x, true);
                 bool monster = xc != null && (xc.Data.Type & 0x1) != 0;
-                if (monster && parts.Length > 1 && int.TryParse(parts[1], out mats)) z.AddMonster(x, mats);
+                int tm = -1;
+                if (monster && parts.Length > 1 && int.TryParse(parts[1], out mats)) { z.AddMonster(x, mats); tm = mats; }
                 else z.Add(monster ? "MZONE" : "SZONE", x);
-                targets.Add(new RemovalTarget { Id = x, Monster = monster });
+                targets.Add(new RemovalTarget { Id = x, Monster = monster, Materials = tm, Tag = targets.Count });
             }
             string oppGrave = Config.GetString("AgentDbOppGrave");
             if (oppGrave != null)
@@ -445,10 +446,12 @@ namespace WindBot.Agent
             }
             loss.DisruptBody = (card, e, zz) => model.WorthNow(new RemovalTarget { Id = card.Data.Id, Monster = (card.Data.Type & 0x1) != 0, Chained = e, LastLink = true }, zz, theirTurn).Value;
             int ourXyz = Config.GetInt("AgentDbOurXyz", 1);
+            int detachUses = Config.GetInt("AgentDbOurDetachUses", -1);
             Func<int, string> name = id => { CardEntry c = id != 0 ? db.Get(id) : null; return c != null ? c.Data.Name : "뒷면 카드"; };
 
             sb.AppendLine("# 체인 중 제거 시험 (" + (theirTurn ? "상대 턴" : "우리 턴") + ", 상대 필드: " + (field.Length > 0 ? field : "없음")
-                        + ", 체인: " + (chainText.Count > 0 ? String.Join(" → ", chainText.ToArray()) : "없음") + ", 우리 Ryzeal 엑시즈 " + ourXyz + "장)");
+                        + ", 체인: " + (chainText.Count > 0 ? String.Join(" → ", chainText.ToArray()) : "없음") + ", 우리 Ryzeal 엑시즈 " + ourXyz + "장"
+                        + (detachUses > 0 ? ", 소재 제거로 쓰는 제거 남은 " + detachUses + "회" : "") + ")");
             sb.AppendLine();
             sb.AppendLine("## 지금 없애면 상대가 잃는 값");
             sb.AppendLine();
@@ -468,9 +471,22 @@ namespace WindBot.Agent
                     if (!answers && !free) { sb.AppendLine(head + "이 창에서는 발동 불가"); continue; }
                     bool inHand = e.Range != null && e.Range.Contains("HAND") && (c.Data.Type & 0x1) != 0;
                     int max = im.MultipliesByCondition(c, e) ? ourXyz : 1;
-                    RemovalChoice ch = model.Choose(c, e, inHand, targets, max, z, theirTurn);
+                    RemovalChoice ch = model.Choose(c, e, inHand, targets, max, z, theirTurn, detachUses);
                     sb.AppendLine(head + ch.Describe() + (ch.Picks.Count > 0 ? " → " + String.Join(", ", ch.Picks.Select(kv => name(kv.Key.Id) + " " + RemovalWorthText(kv.Value)).ToArray()) : ""));
                 }
+            sb.AppendLine();
+            sb.AppendLine("## Lua에서 읽은 보호 (대상 지정 불가 / 파괴 불가 / 응답으로 자기 파괴 내성)");
+            sb.AppendLine();
+            foreach (CardEntry c in db.Cards.Values.OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+            {
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (e.Shield != null) sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": " + e.Shield.Describe() + (e.Range != null ? " [" + e.Range + "]" : ""));
+                    if (e.GuardsSelf) sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": 처리 시 자신 효과 파괴 내성 (응답 보호" + (e.DetachCount > 0 ? ", 소재 " + e.DetachCount : "") + ")");
+                }
+                foreach (string note in c.Notes.Where(n => n.Contains("보호")))
+                    sb.AppendLine("- " + c.Data.Name + ": " + note);
+            }
             sb.AppendLine();
             sb.AppendLine("## Lua에서 읽은 '효과 처리에 발동한 카드가 필요한가' (SourceStop)와 제거 범위");
             sb.AppendLine();

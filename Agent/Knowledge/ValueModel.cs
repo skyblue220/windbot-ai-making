@@ -69,6 +69,9 @@ namespace WindBot.Agent.Knowledge
             { "removal.body", 10 },      // removing a face-up card that plays from the field: its body, on top of the effects it can still use this turn
             { "removal.facedown", 20 },  // removing a face-down card: its expected worth (a set interruption, unknown; learnable) (docs/CHAIN_REMOVAL.md)
             { "removal.partial_stop", 0.25 }, // removing a card whose chained effect needs it only in part (Impermanence's column negation): share of that effect stopped
+            { "removal.self_guard", 0.1 }, // a destroy on a card that can answer it by making itself indestructible (Number F0 ⑤): share of its worth still taken
+            { "removal.material", 15 },  // a face-up monster with nothing left to use from the field, with a Level: Xyz material on top of removal.body (learnable)
+            { "removal.reserve", 3 },    // a detach-paid removal (Detonator ①): hold × max(1, this / uses left this turn), keeping the last uses for bigger targets (learnable)
             { "removal.hold", 1.0 },     // a removal fires only when what it takes now beats this × its interruption value (kept for a later window; learnable)
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)

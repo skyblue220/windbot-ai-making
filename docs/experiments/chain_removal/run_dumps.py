@@ -11,6 +11,7 @@ paths = [os.path.join(PI, 'expansions', 'cards.cdb'), os.path.join(PI, 'reposito
 B = base64.b64encode(json.dumps(paths).encode()).decode()
 
 ICE, SWORD, DUO, DET, IMPERM, CROSS = 8633261, 35844557, 7511613, 34909328, 10045474, 6798031
+EXT, F0 = 34022970, 41522092
 def L(*x): return ",".join(str(i) for i in x)
 
 cases = {
@@ -28,6 +29,14 @@ cases = {
  "cross_on_chain":  {"AgentDbOppTurn": "false", "AgentDbOppField": "%d:2" % DET, "AgentDbOppChain": "%d:1" % CROSS, "AgentDbOurXyz": "2"},
  # their turn: Ryzeal Cross face-up, (3) unused, no chain
  "cross_standby":   {"AgentDbOppField": L(CROSS, "%d:2" % DET), "AgentDbOurXyz": "1"},
+ # their turn (log 192013 T3): Number F0 (2) beside Duo Drive (2) answering with (2); F0 (4) keeps every other card from being targeted,
+ # F0 (5) answers a destroy by making itself indestructible
+ "f0_guard":        {"AgentDbOppField": L("%d:2" % F0, "%d:2" % DUO), "AgentDbOppChain": "%d:2" % DUO, "AgentDbOppGrave": L(ICE, SWORD), "AgentDbOurXyz": "1"},
+ # their turn: Ext Ryzeal (2) search on the chain; Detonator (1) with 3 / 1 uses left this turn
+ "ext_det3":        {"AgentDbOppField": EXT, "AgentDbOppChain": "%d:2" % EXT, "AgentDbOurXyz": "1", "AgentDbOurDetachUses": "3"},
+ "ext_det1":        {"AgentDbOppField": EXT, "AgentDbOppChain": "%d:2" % EXT, "AgentDbOurXyz": "1", "AgentDbOurDetachUses": "1"},
+ # same Detonator (1) uses left 1, Duo Drive (2) on the chain: still worth the last material
+ "duo_det1":        {"AgentDbOppField": L("%d:2" % DET, "%d:2" % DUO), "AgentDbOppChain": "%d:2" % DUO, "AgentDbOppGrave": L(ICE, SWORD), "AgentDbOurXyz": "1", "AgentDbOurDetachUses": "1"},
 }
 
 if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")

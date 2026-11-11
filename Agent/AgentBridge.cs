@@ -383,7 +383,7 @@ namespace WindBot.Agent
 
         private RemovalTarget TargetFor(ClientCard c)
         {
-            RemovalTarget t = new RemovalTarget { Id = c.Id, FaceUp = c.IsFaceup() && c.Id != 0, Monster = c.Location == CardLocation.MonsterZone, Theirs = c.Controller == 1, Tag = c };
+            RemovalTarget t = new RemovalTarget { Id = c.Id, FaceUp = c.IsFaceup() && c.Id != 0, Monster = c.Location == CardLocation.MonsterZone, Theirs = c.Controller == 1, Materials = c.Overlays.Count, Tag = c };
             IList<ChainInfo> chain = _duel.CurrentChainInfo;
             for (int i = 0; i < chain.Count; ++i)
             {
@@ -416,10 +416,25 @@ namespace WindBot.Agent
             return Math.Max(1, _duel.Fields[0].MonsterZone.Count(m => m != null && m.IsFaceup() && ok.Contains(m.Id)));
         }
 
+        /// <summary>Uses of a detach-paid removal left on our field this turn (Detonator ①: materials / detach over our copies); -1 otherwise.</summary>
+        private int RemovalUsesLeft(CardEntry c, EffectEntry e)
+        {
+            if (e.DetachCount <= 0) return -1;
+            int n = 0;
+            foreach (ClientCard m in _duel.Fields[0].MonsterZone)
+                if (m != null && m.IsFaceup() && m.Id == c.Data.Id) n += m.Overlays.Count / e.DetachCount;
+            if (e.Limit != null)
+            {
+                KeyUsage u = _db.PeekUsage(0, e);
+                n = Math.Min(n, e.Limit.Count - (u != null ? u.Used : 0));
+            }
+            return Math.Max(1, n);
+        }
+
         /// <summary>Chain option estimate for a removal: pass value + (what it takes now − what keeping it is worth).</summary>
         private void RemovalEstimate(DecisionOption o, CardEntry c, EffectEntry e, double pass)
         {
-            RemovalChoice ch = _removal.Choose(c, e, o.Location == (int)CardLocation.Hand, OpponentTargets(), RemovalMax(c, e), _oppZones, _duel.Player == 1);
+            RemovalChoice ch = _removal.Choose(c, e, o.Location == (int)CardLocation.Hand, OpponentTargets(), RemovalMax(c, e), _oppZones, _duel.Player == 1, RemovalUsesLeft(c, e));
             o.Estimate = pass + ch.Gain - ch.Hold;
             o.Info = (o.Info ?? "") + " | 제거 " + ch.Describe()
                    + String.Concat(ch.Picks.Select(kv => " | 대상 " + (_db.Get(kv.Key.Id) != null ? _db.Get(kv.Key.Id).Data.Name : "뒷면") + " " + kv.Value.Describe()).ToArray());
@@ -691,9 +706,8 @@ namespace WindBot.Agent
                             {
                                 // Destroy / banish / bounce in answer to their link (Detonator ①, Ghost Ogre, Tornado Dragon, Plasma Hole ①):
                                 // what it takes now (a spent normal trap's body is nothing) against keeping it (docs/CHAIN_REMOVAL.md).
+                                // (No "상대 손실" line here: that is the answered link's loss, not the picked target's; the 대상 lines are.)
                                 RemovalEstimate(o, c, e, 0);
-                                HitLoss hl = HitLossNow(c, e);
-                                if (hl != null) o.Info = (o.Info ?? "") + " | " + hl.Describe();
                             }
                             else if (!opponentActed && _removal != null && _removal.IsRemoval(c, e) && e.Events.Contains("FREE_CHAIN") && _planner.Interrupts.IsInterrupt(c, e))
                                 RemovalEstimate(o, c, e, 1); // a free-chain removal in an open window (their Standby / Main): only when it beats keeping it
@@ -705,7 +719,16 @@ namespace WindBot.Agent
                                     o.Estimate = -1; // below passing: keep the card for a use that counts
                                     o.Info = (o.Info ?? "") + " | 보류: " + skip;
                                 }
-                                else o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                                else
+                                {
+                                    o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                                    if (o.Estimate <= 0)
+                                    {
+                                        // Nothing this effect does is valued yet (Plasma Hole ②'s quick Xyz summon): below passing, not a coin flip.
+                                        o.Estimate = -0.5;
+                                        o.Info = (o.Info ?? "") + " | 가치 미산정: 패스 우선";
+                                    }
+                                }
                                 // Shown only for now (step 1 of the use/hold plan): what this hit costs the opponent.
                                 HitLoss hl = HitLossNow(c, e);
                                 if (hl != null) o.Info = (o.Info ?? "") + " | " + hl.Describe();
@@ -781,7 +804,8 @@ namespace WindBot.Agent
                                 {
                                     // A card on the field: what removing it takes now (an activated normal trap: nothing; a chained effect
                                     // resolves anyway unless it needs its card).
-                                    RemovalWorth wn = _removal.WorthNow(rt, _oppZones, _duel.Player == 1);
+                                    // A destroy (hint 502) on a card that can answer it by making itself indestructible (F0 ⑤) goes last.
+                                    RemovalWorth wn = _removal.WorthAgainst(null, null, rt, _oppZones, _duel.Player == 1, r.Hint == 502);
                                     threat = wn.Value;
                                     o.Info = (o.Info ?? "") + " | 지금 없애면 " + wn.Describe();
                                 }

@@ -179,6 +179,9 @@
   - [x] 1단계 보완 (2026-11-11, `INTERRUPTION_RISK.md` 8.1.2): Ext ① 조건을 엑스트라 덱 잔량으로, Duo Drive ③ 2장 서치를 연쇄에 반영, 엑스트라 덱 코스트 순서(묘지 효과 → Cross로 되돌릴 Xyz의 남는 사본 → 쓸모 낮은 Xyz).
   - [ ] 2단계 상대 경로 예측 + 보호 확인, 3단계 아끼기 가치·체인 응답 반영·`hold.<id>`, 4단계 기록, 5단계 미러 대전 확인.
   - [x] 제거 효과의 체인 중 가치·발동/보류 (2026-11-11, `CHAIN_REMOVAL.md`): Ghost Ogre, Detonator ①, Tornado Dragon, Plasma Hole ①이 공통 `ChainRemovalModel.WorthNow`를 씀. 발동 중인 일반 함정은 몸체 0, 체인 위 효과는 카드가 필요할 때(Lua `IsRelateToEffect`)만 멈춤, 얻는 값 > 방해 가치 × `removal.hold`일 때만 발동, 프리 체인 제거는 상대가 아무것도 안 한 창에서도 판단(스탠바이의 미사용 Detonator에 Plasma Hole). 오프라인 확인 `experiments/chain_removal/run_dumps.py`. 실전 미확인.
+  - [x] 실전 후속 (2026-11-11): 대상 지정/파괴 보호를 Lua에서 읽음(F0 ④ 대상 불가, F0 ⑤ 응답 파괴 내성), 효과를 다 쓴 필드 몬스터 몸체 = `removal.body` + `removal.material`, Detonator ① 아껴 둘 값이 남은 소재 수에 따라 커짐(`removal.reserve`), 가치 0인 방해는 패스 우선.
+  - [ ] Plasma Hole ② (상대 턴 엑시즈 소환) 가치 계산: 소환할 몬스터의 방해 가치 − 쓰는 소재.
+  - [ ] `removal.reserve` 대신 상대 덱에 남은 전개 카드로 "이번 턴 더 큰 대상" 기대값 추정.
 - [~] **묘지 이득을 여러 턴에 걸쳐 쓰기** (2026-11-11 시작, `GRAVE_PAYOFF.md`): 묘지로 가면 이득인 카드(Twins, Aggregator)의 1턴 1번 효과를 이번 턴·상대 턴·다음 턴에 각각 쓸 수 있게, 전달 경로(소재 떼기/코스트/파괴/효과)와 따로 읽는다.
   - [x] 1단계 계획기가 엑시즈 소재를 카드 id로 기억, 뗀 소재는 그 id로 묘지에, 계획 표기 `[소재]`/`[떼기]`, 실전 `Overlays`·오프라인 `id:a/b` 입력. Ice 1장 322.6 → 342.8(뗀 Ryzeal이 묘지에 가서 Cross ③이 실제 카드를 되돌림).
   - [x] 묘지 이득 리더 골격(`GravePayoffReader`, 시점 가중치 `gy_payoff.now/opp_turn/next_turn` = 1/0.67/0.3). 판단에는 아직 안 씀, 덤프에 표만.
