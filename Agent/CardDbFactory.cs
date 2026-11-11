@@ -372,7 +372,20 @@ namespace WindBot.Agent
             OpponentLossModel loss = new OpponentLossModel(db, w);
             ChainRemovalModel model = new ChainRemovalModel(db, w, loss, im);
             TurnPlanner planner = new TurnPlanner(db, w);
-            ZoneSnapshot ours = new StaticZoneView().Snapshot();
+            // Our field (AgentDbOurField = id:materials,...; spells as id): for Plasma Hole ② and the planner's worth.
+            StaticZoneView ourView = new StaticZoneView();
+            string ourField = Config.GetString("AgentDbOurField") ?? "";
+            foreach (string s in ourField.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] parts = s.Trim().Split(':');
+                int x, mats;
+                if (!int.TryParse(parts[0], out x)) continue;
+                CardEntry xc = db.EnsureCard(x, false);
+                bool monster = xc != null && (xc.Data.Type & 0x1) != 0;
+                if (monster) ourView.AddMonster(x, parts.Length > 1 && int.TryParse(parts[1], out mats) ? mats : 0);
+                else ourView.Add("SZONE", x);
+            }
+            ZoneSnapshot ours = ourView.Snapshot();
             model.StaticWorth = id => planner.Worth(ours, id);
             bool theirTurn = Config.GetBool("AgentDbOppTurn", true);
 
@@ -447,11 +460,24 @@ namespace WindBot.Agent
             loss.DisruptBody = (card, e, zz) => model.WorthNow(new RemovalTarget { Id = card.Data.Id, Monster = (card.Data.Type & 0x1) != 0, Chained = e, LastLink = true }, zz, theirTurn).Value;
             int ourXyz = Config.GetInt("AgentDbOurXyz", 1);
             int detachUses = Config.GetInt("AgentDbOurDetachUses", -1);
+            model.HoldMode = Config.GetString("AgentRemovalHold") ?? "reserve";
+            HoldContext ctx = new HoldContext
+            {
+                UsesLeft = detachUses,
+                TurnLeft = double.Parse(Config.GetString("AgentDbTurnLeft") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
+                OppHand = Config.GetInt("AgentDbOppHand", -1)
+            };
             Func<int, string> name = id => { CardEntry c = id != 0 ? db.Get(id) : null; return c != null ? c.Data.Name : "뒷면 카드"; };
 
             sb.AppendLine("# 체인 중 제거 시험 (" + (theirTurn ? "상대 턴" : "우리 턴") + ", 상대 필드: " + (field.Length > 0 ? field : "없음")
                         + ", 체인: " + (chainText.Count > 0 ? String.Join(" → ", chainText.ToArray()) : "없음") + ", 우리 Ryzeal 엑시즈 " + ourXyz + "장"
-                        + (detachUses > 0 ? ", 소재 제거로 쓰는 제거 남은 " + detachUses + "회" : "") + ")");
+                        + (detachUses > 0 ? ", 소재 제거로 쓰는 제거 남은 " + detachUses + "회" : "") + ", 아껴 둘 값 방식 " + model.HoldMode
+                        + ", 남은 턴 " + ctx.TurnLeft.ToString(System.Globalization.CultureInfo.InvariantCulture) + (ctx.OppHand >= 0 ? ", 상대 패 " + ctx.OppHand : "") + ")");
+            if (model.HoldMode == "future")
+            {
+                sb.AppendLine();
+                sb.AppendLine("이번 턴 나올 대상 (future, 전체; 판단에서는 지금 고른 대상을 뺌): " + String.Join(", ", model.FutureTargets(targets, z, theirTurn, ctx.TurnLeft).Take(6).Select(kv => kv.Key + " " + kv.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)).ToArray()));
+            }
             sb.AppendLine();
             sb.AppendLine("## 지금 없애면 상대가 잃는 값");
             sb.AppendLine();
@@ -471,8 +497,40 @@ namespace WindBot.Agent
                     if (!answers && !free) { sb.AppendLine(head + "이 창에서는 발동 불가"); continue; }
                     bool inHand = e.Range != null && e.Range.Contains("HAND") && (c.Data.Type & 0x1) != 0;
                     int max = im.MultipliesByCondition(c, e) ? ourXyz : 1;
-                    RemovalChoice ch = model.Choose(c, e, inHand, targets, max, z, theirTurn, detachUses);
+                    RemovalChoice ch = model.Choose(c, e, inHand, targets, max, z, theirTurn, ctx);
                     sb.AppendLine(head + ch.Describe() + (ch.Picks.Count > 0 ? " → " + String.Join(", ", ch.Picks.Select(kv => name(kv.Key.Id) + " " + RemovalWorthText(kv.Value)).ToArray()) : ""));
+                }
+            sb.AppendLine();
+            sb.AppendLine("## 상대 턴 엑시즈 소환 (Plasma Hole ② 등, 우리 필드: " + (ourField.Length > 0 ? ourField : "없음") + ")");
+            sb.AppendLine();
+            foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent && x.CopiesInDeck > 0).OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+                foreach (EffectEntry e in c.Effects.Where(x => x.Links.Any(l => l.Relation == "엑스트라 덱에서 엑시즈 소환")))
+                {
+                    CardLink must = e.Links.FirstOrDefault(l => l.Relation.EndsWith("의 카드를 소재로 엑시즈 소환"));
+                    Func<int, bool> ok = must == null || must.AnyCard ? (Func<int, bool>)null : id => must.Targets.Contains(id);
+                    XyzNowResult x = planner.BestXyzNow(ours, ok);
+                    double hold = w.BaseOf("xyz_now.hold");
+                    if (x == null) { sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": 만들 수 있는 엑시즈 없음 → 패스"); continue; }
+                    sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": " + (x.Gain > hold ? "발동" : "보류") + " → " + x.Text + ", 턴 종료 방해 +" + x.Gain.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " vs 아껴 둘 값 " + hold);
+                    sb.AppendLine("  - 소환 전: " + String.Join(", ", x.Before.ToArray()));
+                    sb.AppendLine("  - 소환 후: " + String.Join(", ", x.After.ToArray()));
+                }
+            sb.AppendLine();
+            sb.AppendLine("## Lua에서 읽은 효과 발동 봉인 (공격력 기준)");
+            sb.AppendLine();
+            foreach (CardEntry c in db.Cards.Values.OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+                foreach (EffectEntry e in c.Effects.Where(x => x.LockAtkAbove > 0))
+                {
+                    // Monsters with that ATK or more whose effects are activated (a chain link the lock stops), by deck.
+                    Func<CardEntry, bool> hit = m => (m.Data.Type & 0x1) != 0 && m.Data.Atk >= e.LockAtkAbove && m.Effects.Any(x => x.Activates);
+                    Func<CardEntry, int> theirs = m => m.Opponent ? Math.Max(1, m.OpponentCopies) : m.OpponentCopies;
+                    var oppAll = db.Cards.Values.Where(m => (m.Data.Type & 0x1) != 0 && theirs(m) > 0).ToList();
+                    var oppHit = oppAll.Where(hit).ToList();
+                    var ourHit = db.Cards.Values.Where(m => !m.Opponent && m.CopiesInDeck > 0 && hit(m)).ToList();
+                    Func<IEnumerable<CardEntry>, string> list = g => g.Any() ? String.Join(", ", g.Select(m => m.Data.Name + " " + m.Data.Atk).ToArray()) : "없음";
+                    sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": 공격력 " + e.LockAtkAbove + " 이상 몬스터 효과 발동 불가 (" + (e.LockBoth ? "양쪽" : "상대만") + ")");
+                    sb.AppendLine("  - 상대 덱 몬스터 " + oppAll.Sum(theirs) + "장 중 해당 " + oppHit.Sum(theirs) + "장: " + list(oppHit));
+                    if (e.LockBoth) sb.AppendLine("  - 우리 덱에서 같이 막히는 몬스터: " + list(ourHit));
                 }
             sb.AppendLine();
             sb.AppendLine("## Lua에서 읽은 보호 (대상 지정 불가 / 파괴 불가 / 응답으로 자기 파괴 내성)");

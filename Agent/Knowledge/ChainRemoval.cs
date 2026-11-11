@@ -23,6 +23,35 @@ namespace WindBot.Agent.Knowledge
         public object Tag;
     }
 
+    /// <summary>
+    /// What a detach-paid removal (Detonator ①) weighs keeping a use against (docs/CHAIN_REMOVAL.md 4, hold modes).
+    /// </summary>
+    public sealed class HoldContext
+    {
+        /// <summary>Uses left on our field this turn (materials / detach over our copies); -1 not known.</summary>
+        public int UsesLeft = -1;
+        /// <summary>Share of the opponent's turn still to come: 1 before their Main Phase 1, about 0.4 in the Battle Phase, 0 at the End Phase.</summary>
+        public double TurnLeft = 1;
+        /// <summary>Cards in the opponent's hand (-1 not known).</summary>
+        public int OppHand = -1;
+    }
+
+    /// <summary>A zone view whose field materials are at least n (an Xyz monster that arrives later, with its materials).</summary>
+    internal sealed class MaterialsAtLeast : IZoneView
+    {
+        private readonly IZoneView _z;
+        private readonly int _n;
+        public MaterialsAtLeast(IZoneView z, int n) { _z = z; _n = n; }
+        public int Hand(int cardId) { return _z.Hand(cardId); }
+        public int Field(int cardId) { return _z.Field(cardId); }
+        public int Grave(int cardId) { return _z.Grave(cardId); }
+        public int Banished(int cardId) { return _z.Banished(cardId); }
+        public bool NormalSummonAvailable { get { return _z.NormalSummonAvailable; } }
+        public int FieldMaterials() { return Math.Max(_n, _z.FieldMaterials()); }
+        public ZoneSnapshot Snapshot() { return _z.Snapshot(); }
+        public bool AnyOwn(string zones, Func<int, bool> match) { return _z.AnyOwn(zones, match); }
+    }
+
     public sealed class RemovalWorth
     {
         public double Value;
@@ -45,6 +74,7 @@ namespace WindBot.Agent.Knowledge
         public int Max;
         /// <summary>Detach uses left this turn that the hold was scaled by (0: not scaled).</summary>
         public int UsesLeft;
+        public string HoldNote;
         public readonly List<KeyValuePair<RemovalTarget, RemovalWorth>> Picks = new List<KeyValuePair<RemovalTarget, RemovalWorth>>();
         /// <summary>Cards it could otherwise reach that a protection keeps out (name + reason).</summary>
         public readonly List<string> Blocked = new List<string>();
@@ -53,7 +83,7 @@ namespace WindBot.Agent.Knowledge
         public string Describe()
         {
             return (Fire ? "발동" : "보류") + ": 얻는 값 " + RemovalWorth.F(Gain) + " vs 아껴 둘 값 " + RemovalWorth.F(Hold)
-                 + (UsesLeft > 0 ? " (이번 턴 남은 사용 " + UsesLeft + "회)" : "")
+                 + (UsesLeft > 0 ? " (이번 턴 남은 사용 " + UsesLeft + "회" + (HoldNote != null ? ", " + HoldNote : "") + ")" : "")
                  + (Picks.Count > 0 ? " (최대 " + Max + "장)" : " (칠 카드 없음)")
                  + (Blocked.Count > 0 ? "; 보호로 못 침: " + String.Join(", ", Blocked.ToArray()) : "");
         }
@@ -74,6 +104,15 @@ namespace WindBot.Agent.Knowledge
         private readonly InterruptModel _im;
         /// <summary>The card's own worth as a body on the field (planner Worth), by card id.</summary>
         public Func<int, double> StaticWorth;
+        /// <summary>
+        /// How a detach-paid removal's hold grows as its uses run out (docs/CHAIN_REMOVAL.md 4):
+        /// "reserve" hold x max(1, removal.reserve / uses left);
+        /// "phase"   the same with removal.reserve x the share of their turn left (late in the turn few targets are still to come);
+        /// "hand"    expected plays left = 1 + removal.plays_per_card x their hand, hold x max(1, plays / uses left);
+        /// "future"  the n-th best target still to come this turn (n = uses left; their field cards' unused effects and their
+        ///           Extra Deck monsters x removal.future_extra, both x turn left): spending a use now gives that one up.
+        /// </summary>
+        public string HoldMode = "reserve";
 
         public ChainRemovalModel(GameCardDb db, ValueWeights w, OpponentLossModel loss, InterruptModel im)
         {
@@ -237,6 +276,53 @@ namespace WindBot.Agent.Knowledge
             return null;
         }
 
+        /// <summary>
+        /// Targets that may still come this turn, best first ("future" hold): each face-up card of theirs with an unused effect
+        /// it activates from the field, worth answering then (WorthNow with that effect chained), and each Extra Deck monster of
+        /// theirs not on the field that plays from it, x removal.future_extra; all x the share of their turn left.
+        /// </summary>
+        public List<KeyValuePair<string, double>> FutureTargets(IList<RemovalTarget> field, IZoneView z, bool theirTurn, double turnLeft)
+        {
+            List<KeyValuePair<string, double>> r = new List<KeyValuePair<string, double>>();
+            HashSet<int> onField = new HashSet<int>();
+            foreach (RemovalTarget t in field)
+            {
+                if (!t.Theirs || !t.FaceUp || t.Id == 0) continue;
+                onField.Add(t.Id);
+                if (t.Chained != null) continue; // acting now: not still to come
+                CardEntry c = _db.EnsureCard(t.Id, true);
+                if (c == null) continue;
+                double best = 0;
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (!e.Activates || e.Range == null || !(e.Range.Contains("MZONE") || e.Range.Contains("SZONE") || e.Range.Contains("FZONE"))) continue;
+                    KeyUsage u = _db.PeekUsage(1, e);
+                    if (u != null && e.Limit != null && u.Used >= e.Limit.Count) continue;
+                    int mats = t.Materials >= 0 ? t.Materials : z.FieldMaterials();
+                    if (e.DetachCount > mats) continue;
+                    RemovalTarget later = new RemovalTarget { Id = t.Id, Monster = t.Monster, Materials = t.Materials, Chained = e, LastLink = true };
+                    best = Math.Max(best, WorthNow(later, z, theirTurn).Value);
+                }
+                if (best > 0) r.Add(new KeyValuePair<string, double>(c.Data.Name, best * turnLeft));
+            }
+            double share = _w.BaseOf("removal.future_extra");
+            IZoneView summoned = new MaterialsAtLeast(z, 2); // a monster summoned later this turn comes with its materials
+            foreach (CardEntry c in _db.Cards.Values)
+            {
+                int copies = c.Opponent ? Math.Max(1, c.OpponentCopies) : c.OpponentCopies;
+                if (copies <= 0 || onField.Contains(c.Data.Id)) continue;
+                if ((c.Data.Type & (0x40 | 0x2000 | 0x800000 | 0x4000000)) == 0) continue; // Extra Deck monsters only
+                double best = 0;
+                foreach (EffectEntry e in c.Effects.Where(x => x.Activates && x.Range != null && x.Range.Contains("MZONE")))
+                {
+                    RemovalTarget later = new RemovalTarget { Id = c.Data.Id, Monster = true, Materials = 2, Chained = e, LastLink = true };
+                    best = Math.Max(best, WorthNow(later, summoned, theirTurn).Value);
+                }
+                if (best > 0) r.Add(new KeyValuePair<string, double>(c.Data.Name + "(엑스트라)", best * share * turnLeft));
+            }
+            return r.OrderByDescending(kv => kv.Value).ToList();
+        }
+
         /// <summary>WorthNow with t's self-protecting response counted: a destroy it can dodge is worth removal.self_guard of it.</summary>
         public RemovalWorth WorthAgainst(CardEntry c, EffectEntry e, RemovalTarget t, IZoneView z, bool theirTurn, bool destroys)
         {
@@ -262,14 +348,15 @@ namespace WindBot.Agent.Knowledge
         /// </param>
         public RemovalChoice Choose(CardEntry c, EffectEntry e, bool inHand, IEnumerable<RemovalTarget> targets, int max, IZoneView z, bool theirTurn, int usesLeft = -1)
         {
+            return Choose(c, e, inHand, targets, max, z, theirTurn, new HoldContext { UsesLeft = usesLeft });
+        }
+
+        public RemovalChoice Choose(CardEntry c, EffectEntry e, bool inHand, IEnumerable<RemovalTarget> targets, int max, IZoneView z, bool theirTurn, HoldContext ctx)
+        {
             RemovalChoice r = new RemovalChoice { Max = Math.Max(1, max) };
             r.Hold = _im.Value(c, e, inHand) * _w.BaseOf("removal.hold");
-            if (e.DetachCount > 0 && usesLeft > 0)
-            {
-                double scarce = Math.Max(1, _w.BaseOf("removal.reserve") / usesLeft);
-                r.Hold *= scarce;
-                r.UsesLeft = usesLeft;
-            }
+            IList<RemovalTarget> all0 = targets as IList<RemovalTarget> ?? targets.ToList();
+            targets = all0;
             // A response that hits the answered card (Ghost Ogre) also needs that effect to be one it can answer (CanHit).
             IList<RemovalTarget> all = targets as IList<RemovalTarget> ?? targets.ToList();
             var scored = new List<KeyValuePair<RemovalTarget, RemovalWorth>>();
@@ -285,6 +372,41 @@ namespace WindBot.Agent.Knowledge
             scored = scored.OrderByDescending(kv => kv.Value.Value).Take(r.Max).ToList();
             r.Picks.AddRange(scored);
             r.Gain = scored.Sum(kv => kv.Value.Value);
+            // The hold: what keeping this use is worth (hold modes). Picks first, so "future" leaves out the cards taken now.
+            int n = ctx != null ? ctx.UsesLeft : -1;
+            if (e.DetachCount > 0 && n > 0)
+            {
+                r.UsesLeft = n;
+                double turnLeft = Math.Max(0, Math.Min(1, ctx.TurnLeft));
+                switch (HoldMode)
+                {
+                    case "phase":
+                        r.Hold *= Math.Max(1, _w.BaseOf("removal.reserve") * turnLeft / n);
+                        r.HoldNote = "남은 턴 " + RemovalWorth.F(turnLeft);
+                        break;
+                    case "hand":
+                        {
+                            double plays = 1 + _w.BaseOf("removal.plays_per_card") * Math.Max(0, ctx.OppHand);
+                            r.Hold *= Math.Max(1, plays / n);
+                            r.HoldNote = "상대 패 " + ctx.OppHand + " → 남은 전개 " + RemovalWorth.F(plays);
+                            break;
+                        }
+                    case "future":
+                        {
+                            List<KeyValuePair<string, double>> f = FutureTargets(all0.Where(t => !r.Picks.Any(p => ReferenceEquals(p.Key, t))).ToList(), z, theirTurn, turnLeft);
+                            if (f.Count >= n)
+                            {
+                                r.Hold = Math.Max(r.Hold, f[n - 1].Value);
+                                r.HoldNote = n + "번째로 나올 대상 " + f[n - 1].Key + " " + RemovalWorth.F(f[n - 1].Value);
+                            }
+                            else r.HoldNote = "나올 대상 " + f.Count + "장 < 남은 사용 " + n;
+                            break;
+                        }
+                    default:
+                        r.Hold *= Math.Max(1, _w.BaseOf("removal.reserve") / n);
+                        break;
+                }
+            }
             return r;
         }
     }

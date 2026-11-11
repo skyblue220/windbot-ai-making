@@ -66,6 +66,9 @@ namespace WindBot.Agent
         private BaitModel _bait;
         private OpponentLossModel _loss;
         private ChainRemovalModel _removal;
+        /// <summary>The Xyz monster (and our materials) a quick Xyz summon effect (Plasma Hole ②) was valued with: its picks follow it.</summary>
+        private int _xyzNowPick;
+        private readonly List<int> _xyzNowMats = new List<int>();
         private GravePayoffReader _payoff;
         private DuelZoneView _oppZones;
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
@@ -137,6 +140,7 @@ namespace WindBot.Agent
                 _loss = new OpponentLossModel(_db, _values.Weights);
                 _removal = new ChainRemovalModel(_db, _values.Weights, _loss, _planner.Interrupts);
                 _removal.StaticWorth = id => _planner.Worth(_zones.Snapshot(), id);
+                _removal.HoldMode = Config.GetString("AgentRemovalHold") ?? "reserve";
                 _loss.DisruptBody = (card, e, z) => _removal.WorthNow(new RemovalTarget { Id = card.Data.Id, Monster = (card.Data.Type & 0x1) != 0, Chained = e, LastLink = true }, z, _duel.Player == 1).Value;
                 _payoff = new GravePayoffReader(_db, _values.Weights, _planner.HitsFieldCards);
                 ValueModel vm = _values;
@@ -416,6 +420,20 @@ namespace WindBot.Agent
             return Math.Max(1, _duel.Fields[0].MonsterZone.Count(m => m != null && m.IsFaceup() && ok.Contains(m.Id)));
         }
 
+        /// <summary>Share of the current turn still to come, by phase (removal hold modes "phase" / "future").</summary>
+        private double TurnLeft()
+        {
+            switch (_duel.Phase)
+            {
+                case DuelPhase.Draw:
+                case DuelPhase.Standby: return 1;
+                case DuelPhase.Main1: return 0.8;
+                case DuelPhase.Main2: return 0.3;
+                case DuelPhase.End: return 0;
+                default: return 0.4; // Battle Phase steps
+            }
+        }
+
         /// <summary>Uses of a detach-paid removal left on our field this turn (Detonator ①: materials / detach over our copies); -1 otherwise.</summary>
         private int RemovalUsesLeft(CardEntry c, EffectEntry e)
         {
@@ -431,10 +449,42 @@ namespace WindBot.Agent
             return Math.Max(1, n);
         }
 
+        /// <summary>
+        /// A quick Xyz summon from our board on the opponent's turn (Plasma Hole ②: "Xyz Summon using monsters you control,
+        /// including a Ryzeal monster", read from its Lua links): the best Xyz the planner can make now, valued by the end-of-turn
+        /// interruptions it adds (F0 from two Rank 4 Xyz: its ⑤ minus what the materials' Detonator ① uses were worth), against
+        /// keeping the effect (xyz_now.hold). False when the effect is not one.
+        /// </summary>
+        private bool XyzNowEstimate(DecisionOption o, EffectEntry e, double pass)
+        {
+            if (!e.Links.Any(l => l.Relation == "엑스트라 덱에서 엑시즈 소환")) return false;
+            CardLink must = e.Links.FirstOrDefault(l => l.Relation.EndsWith("의 카드를 소재로 엑시즈 소환"));
+            Func<int, bool> ok = must == null || must.AnyCard ? (Func<int, bool>)null : id => must.Targets.Contains(id);
+            XyzNowResult x = _planner.BestXyzNow(_zones.Snapshot(), ok);
+            double hold = _values.Weights.BaseOf("xyz_now.hold");
+            if (x == null)
+            {
+                o.Estimate = pass - 0.5;
+                o.Info = (o.Info ?? "") + " | 엑시즈 소환: 만들 수 있는 엑시즈 없음";
+                return true;
+            }
+            o.Estimate = pass + x.Gain - hold;
+            o.Info = (o.Info ?? "") + " | 엑시즈 소환: " + x.Text + " → 턴 종료 방해 +" + x.Gain.ToString("0.#") + " vs 아껴 둘 값 " + hold.ToString("0.#")
+                   + " | 소환 후: " + String.Join(", ", x.After.ToArray());
+            if (x.Gain > hold)
+            {
+                _xyzNowPick = x.CardId;
+                _xyzNowMats.Clear();
+                _xyzNowMats.AddRange(x.Materials);
+            }
+            return true;
+        }
+
         /// <summary>Chain option estimate for a removal: pass value + (what it takes now − what keeping it is worth).</summary>
         private void RemovalEstimate(DecisionOption o, CardEntry c, EffectEntry e, double pass)
         {
-            RemovalChoice ch = _removal.Choose(c, e, o.Location == (int)CardLocation.Hand, OpponentTargets(), RemovalMax(c, e), _oppZones, _duel.Player == 1, RemovalUsesLeft(c, e));
+            HoldContext ctx = new HoldContext { UsesLeft = RemovalUsesLeft(c, e), TurnLeft = TurnLeft(), OppHand = _duel.Fields[1].Hand.Count };
+            RemovalChoice ch = _removal.Choose(c, e, o.Location == (int)CardLocation.Hand, OpponentTargets(), RemovalMax(c, e), _oppZones, _duel.Player == 1, ctx);
             o.Estimate = pass + ch.Gain - ch.Hold;
             o.Info = (o.Info ?? "") + " | 제거 " + ch.Describe()
                    + String.Concat(ch.Picks.Select(kv => " | 대상 " + (_db.Get(kv.Key.Id) != null ? _db.Get(kv.Key.Id).Data.Name : "뒷면") + " " + kv.Value.Describe()).ToArray());
@@ -674,6 +724,8 @@ namespace WindBot.Agent
                     {
                         bool opponentActed = _duel.LastChainPlayer == 1;
                         if (opponentActed || _duel.Player == 1) r.NoExplore = true; // a random pass or a wasted interruption costs the game
+                        _xyzNowPick = 0;
+                        _xyzNowMats.Clear();
                         foreach (DecisionOption o in r.Options)
                         {
                             if (o.Action == "Pass") { o.Estimate = opponentActed ? 0 : 1; continue; }
@@ -691,6 +743,7 @@ namespace WindBot.Agent
                             CardEntry c = _db.Get(o.CardId);
                             EffectEntry e = c != null ? _db.FindEffect(c, o.Description) : null;
                             if (c == null || e == null) continue;
+                            if (_duel.Player == 1 && XyzNowEstimate(o, e, opponentActed ? 0 : 1)) continue;
                             if (e.Kind.StartsWith("유발 효과"))
                             {
                                 // Own trigger offered in a chain window; one that hits a field card has nothing to hit but ours
@@ -819,6 +872,18 @@ namespace WindBot.Agent
                             }
                         }
                         if (anyOpponent) r.NoExplore = true;
+                        if (_xyzNowPick != 0 && !r.PreferLow)
+                        {
+                            // Plasma Hole ② resolving: the Xyz monster and the materials it was valued with.
+                            bool hit = false;
+                            foreach (DecisionOption o in r.Options)
+                            {
+                                if (o.Controller != 0) continue;
+                                if (o.Location == (int)CardLocation.Extra && o.CardId == _xyzNowPick) { o.Estimate = 1e6; o.Info = (o.Info ?? "") + " | 상대 턴 엑시즈 소환 계획"; hit = true; }
+                                else if (o.Location == (int)CardLocation.MonsterZone && _xyzNowMats.Contains(o.CardId)) { o.Estimate += 1e5; o.Info = (o.Info ?? "") + " | 상대 턴 엑시즈 소환 소재"; hit = true; }
+                            }
+                            if (hit) { r.NoExplore = true; break; }
+                        }
                         if (!r.PreferLow) FollowPlan(r);
                         else if (!anyOpponent && !negate) { FollowPlanCost(r); FollowPlanAttach(r); }
                         break;

@@ -54,7 +54,63 @@ Detonator ①이 발동 중인 Infinite Impermanence를 파괴하는 문제에�
 - **상대가 아무것도 안 한 창**(프리 체인 제거: Plasma Hole ①, Tornado Dragon): 추정값은 `1 + 얻는 값 − 아껴 둘 값`이고, 패스는 1이다. 전에는 이 창에서 제거를 절대 먼저 쓰지 않았다. 이제 상대 스탠바이에 아직 효과를 쓰지 않은 Detonator가 있으면 Plasma Hole을 발동한다.
 - **상대 모델**: Ghost Ogre처럼 효과는 처리되고 몸체만 없애는 응답(`HitKind.Disrupt`)의 상대 손실을 상수 `hit.disrupt_body` 대신 같은 WorthNow로 계산한다(`OpponentLossModel.DisruptBody`).
 
-## 5. 시험 (`docs/experiments/chain_removal/run_dumps.py`)
+### 아껴 둘 값 방식 (소재를 떼어 쓰는 제거, 2026-11-11)
+
+`removal.reserve` 상수 하나로 "마지막 소재일수록 비싸게"를 정하던 것에 대안을 더했다. `AgentRemovalHold`(덤프와 실전 공통, 기본 `reserve`)로 고른다. 소재를 떼지 않는 제거(Plasma Hole ①, Ghost Ogre, Tornado Dragon)는 어느 방식이든 그대로 방해 가치 × `removal.hold`이다.
+
+| 방식 | 아껴 둘 값 | 쓰는 정보 |
+|---|---|---|
+| `reserve` | 기본 × max(1, `removal.reserve` / 남은 사용) | 남은 사용 횟수만 |
+| `phase` | 기본 × max(1, `removal.reserve` × 남은 턴 / 남은 사용) | + 상대 턴 진행. 남은 턴은 드로우·스탠바이 1, 메인1 0.8, 배틀 0.4, 메인2 0.3, 엔드 0 |
+| `hand` | 기본 × max(1, 남은 전개 / 남은 사용), 남은 전개 = 1 + `removal.plays_per_card`(0.5) × 상대 패 | + 상대 패 매수 |
+| `future` | max(기본, 이번 턴 나올 대상 중 n번째 값), n = 남은 사용 | 상대 카드 DB: 상대 필드 카드의 아직 쓰지 않은 효과(그때 응답하면 얻는 값)와 상대 엑스트라 몬스터 × `removal.future_extra`(0.3), 모두 × 남은 턴. 지금 고른 대상은 뺀다 |
+
+`future`는 "지금 한 번 쓰면 이번 턴 n번째로 좋은 대상을 놓친다"는 기회비용이다. 정수 상수 대신 상대 덱 정보에서 나오고, 상대 테마가 바뀌면 값도 바뀐다.
+
+비교 (`experiments/chain_removal/run_hold_xyz.py`, `out/hold_modes.md`): 상대 Ext ② 서치 체인, Ext 몸체 25.
+
+| 남은 사용 / 남은 턴 / 상대 패 | reserve | phase | hand | future |
+|---|---|---|---|---|
+| 3 / 1 / 5 | 발동 (20.1) | 발동 (20.1) | 발동 (23.5) | 발동 (22.5) |
+| 2 / 1 / 5 | 보류 (30.2) | 보류 (30.2) | 보류 (35.2) | 발동 (24, Banshee) |
+| 1 / 1 / 5 | 보류 (60.3) | 보류 (60.3) | 보류 (70.4) | 보류 (36.5, Duo Drive) |
+| 1 / 1 / 1 | 보류 (60.3) | 보류 (60.3) | 보류 (30.2) | 보류 (36.5) |
+| 1 / 0.3 / 1 | 보류 (60.3) | 발동 (20.1) | 보류 (30.2) | 발동 (20.1) |
+| 2 / 0.3 / 0 | 보류 (30.2) | 발동 (20.1) | 발동 (20.1) | 발동 (20.1) |
+
+- `reserve`는 상대 메인2에도 마지막 소재를 들고 있다가 턴이 끝난다.
+- `phase`·`future`는 턴 후반에 남은 소재를 쓴다.
+- `hand`는 패가 적으면 일찍 쓴다.
+- 상대 필드에 미사용 Detonator(73)가 있으면 네 방식 모두 그쪽을 바로 친다.
+
+### Plasma Hole ② (상대 턴 엑시즈 소환, 2026-11-11)
+
+- **읽는 것:** Lua 링크 "엑스트라 덱에서 엑시즈 소환"과 "몬스터 존의 카드를 소재로 엑시즈 소환"(소재 조건: Ryzeal)을 읽는다.
+- **계산:** 플래너가 지금 우리 필드에서 만들 수 있는 엑시즈를 모두 본다(`TurnPlanner.BestXyzNow`). 레벨 소재, 엑시즈 위, F0처럼 같은 랭크 엑시즈 2장이 대상이다.
+  - 소재에 Ryzeal이 들어가는 것만 고른다.
+  - 값은 턴 종료 방해의 소환 후 − 소환 전이다. `xyz_now.hold`(5)보다 크면 발동한다(상대 턴, 아무 창).
+  - 이어지는 엑시즈/소재 선택은 그 계획을 따른다.
+- **결과:** 필드에 엑시즈만 있으면 후보는 F0뿐이다. 그 경우는 이렇다.
+
+| 우리 필드 | 결과 |
+|---|---|
+| Detonator 2소재 + 1소재 | 보류: F0(⑤ 30.2)가 Detonator ① 3회 + ③을 없앰 (−60.2) |
+| Detonator 0소재 ×2 (소재를 다 씀) | **발동 → F0** (+30.2) |
+| Detonator 1소재 + Duo Drive 0소재 | 보류 (−20) |
+| Detonator 2소재 + Ice·Sword 남김 | 발동 → Traptrix Rafflesia (+65) |
+| Detonator 1장뿐 | 만들 수 있는 엑시즈 없음 → 패스 |
+
+- **한계 1:** F0 ④(우리 다른 카드 대상 지정 불가)와 공격력은 아직 턴 종료 방해에 들어가지 않는다. 그래서 F0 값은 ⑤만큼이다.
+- **한계 2:** ①이 발동하면 Plasma Hole이 묘지로 가서 ②를 쓸 수 있게 된다. 이 가치는 아직 ①이나 플래너의 세트 가치에 넣지 않았다. 지금 발동해도 나중에 발동해도 ②는 쓸 수 있어서 둘 사이 차이가 작다. 차이가 나는 경우는 아껴 두다가 끝내 못 쓰는 경우이다.
+
+### TY-PHON (나중 선택지)
+
+- **읽은 것:** Super Starslayer TY-PHON ①의 "공격력 3000 이상 몬스터 효과 발동 불가 (양쪽)"를 Lua에서 읽는다(`EffectEntry.LockAtkAbove`, `LockBoth`).
+- **덤프 결과:** 상대 덱 몬스터 40장 중 해당하는 것은 4장(Nibiru 3000, Detonator 3000)뿐이고, 같은 4장이 우리 덱에서도 함께 막힌다.
+- **지금 다루는 방식:** 그래서 Ryzeal 상대로는 후보에 넣지 않는다. TY-PHON의 소환 절차("상대가 이번 턴 엑스트라에서 2번 이상 특수 소환했을 때, 우리 필드의 공격력이 가장 높은 몬스터 1장으로")도 아직 읽지 않는다.
+- **넣을 때:** 상대 테마에 공격력 3000 이상의 핵심 몬스터가 많을 때 Plasma Hole ②의 후보로 넣는다. 이때 우리 쪽에서 막히는 몬스터를 빼고 계산한다.
+
+## 5. 시험 (`docs/experiments/chain_removal/run_dumps.py`, `run_hold_xyz.py`)
 
 덤프 인자:
 - `AgentDbRemoval=true`
@@ -63,6 +119,8 @@ Detonator ①이 발동 중인 Infinite Impermanence를 파괴하는 문제에�
 - `AgentDbOppGrave`, `AgentDbOppUsed`, `AgentDbOppTurn`
 - `AgentDbOurXyz`: 우리 Ryzeal 엑시즈 수
 - `AgentDbOurDetachUses`: 소재를 떼어 쓰는 제거의 이번 턴 남은 사용 횟수
+- `AgentRemovalHold` (reserve / phase / hand / future), `AgentDbTurnLeft`, `AgentDbOppHand`
+- `AgentDbOurField`: 우리 필드 (id:소재 수, 마법·함정은 id), Plasma Hole ② 계산용
 
 | 상황 | Ghost Ogre | Detonator ① | Plasma Hole ① | Tornado Dragon |
 |---|---|---|---|---|

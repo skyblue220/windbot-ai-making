@@ -171,6 +171,18 @@ namespace WindBot.Agent.Knowledge
 
     // ------------------------------------------------------------------ planner
 
+    /// <summary>TurnPlanner.BestXyzNow: the Xyz monster, its gain in end-of-turn interruptions, and both boards.</summary>
+    public sealed class XyzNowResult
+    {
+        public int CardId;
+        public double Gain;
+        public string Text;
+        /// <summary>Our monsters it uses as materials (card ids).</summary>
+        public readonly List<int> Materials = new List<int>();
+        public readonly List<string> Before = new List<string>();
+        public readonly List<string> After = new List<string>();
+    }
+
     public sealed class PlanMove
     {
         public string Kind;   // ns, rule, spell, ignition, xyz, trigger
@@ -853,7 +865,14 @@ namespace WindBot.Agent.Knowledge
                     foreach (var r in Resolve(s, c, e, null, "zone", false))
                         result.Add(r);
             }
-            // Xyz summon with two level-N monsters we control
+            LevelXyzSummons(s, result);
+            OverlaySummons(s, result);
+            return result;
+        }
+
+        /// <summary>Xyz summon with two (three) level-N monsters we control.</summary>
+        private void LevelXyzSummons(St s, List<KeyValuePair<List<PlanMove>, St>> result)
+        {
             foreach (int xid in s.Extra.Where(x => x.Value > 0).Select(x => x.Key).ToList())
             {
                 CardEntry x = _db.Get(xid);
@@ -874,8 +893,40 @@ namespace WindBot.Agent.Knowledge
                 n.Mons.Add(xm);
                 AddArrival(result, n, xm, "SPSUMMON_SUCCESS", new PlanMove { Kind = "xyz", CardId = xid, Text = Name(x) + " 엑시즈 소환" + MatText(xm) });
             }
-            OverlaySummons(s, result);
-            return result;
+        }
+
+        /// <summary>
+        /// The best Xyz summon from our board as it stands, valued on the opponent's turn (Plasma Hole ②: "Xyz Summon using monsters
+        /// you control, including a Ryzeal monster"): end-of-turn interruptions after − before, over every Xyz the planner can
+        /// make (level materials, on top of an Xyz, from two same-Rank Xyz like F0) whose materials include one matching
+        /// <paramref name="mustUse"/>. Null when none can be made.
+        /// </summary>
+        public XyzNowResult BestXyzNow(ZoneSnapshot z, Func<int, bool> mustUse)
+        {
+            St s = FromSnapshot(z, _db);
+            s.ExtraRank = -1; // the opponent's turn: no lock of ours from a rule summon
+            List<string> b0 = new List<string>();
+            double before = EndOfTurn(s, b0);
+            List<KeyValuePair<List<PlanMove>, St>> moves = new List<KeyValuePair<List<PlanMove>, St>>();
+            LevelXyzSummons(s, moves);
+            OverlaySummons(s, moves);
+            XyzNowResult best = null;
+            foreach (var mv in moves)
+            {
+                St n = mv.Value;
+                // Materials: the monsters that left our field.
+                List<int> gone = s.Mons.Select(m => m.Id).ToList();
+                foreach (Mon m in n.Mons) gone.Remove(m.Id);
+                if (mustUse != null && !gone.Any(mustUse)) continue;
+                List<string> b1 = new List<string>();
+                double after = EndOfTurn(n, b1);
+                XyzNowResult r = new XyzNowResult { CardId = mv.Key[0].CardId, Gain = after - before, Text = mv.Key[0].Text };
+                r.Materials.AddRange(gone);
+                r.Before.AddRange(b0);
+                r.After.AddRange(b1);
+                if (best == null || r.Gain > best.Gain) best = r;
+            }
+            return best;
         }
 
         private int Rank(int id) { CardEntry c = _db.Get(id); return c == null ? -1 : c.Data.Level; }

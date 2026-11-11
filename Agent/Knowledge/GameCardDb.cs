@@ -138,6 +138,12 @@ namespace WindBot.Agent.Knowledge
         public CardShield Shield;
         /// <summary>The resolution makes its own card indestructible by card effects (Number F0 ⑤): a response that saves it from a destroy.</summary>
         public bool GuardsSelf;
+        /// <summary>
+        /// "Cannot activate the effects of monsters with N or more ATK" (EFFECT_CANNOT_ACTIVATE, Super Starslayer TY-PHON ①): N, or 0
+        /// when the effect locks nothing by ATK. LockBoth: both players (target range 1,1), otherwise the opponent only.
+        /// </summary>
+        public int LockAtkAbove;
+        public bool LockBoth;
     }
 
     /// <summary>
@@ -799,6 +805,15 @@ namespace WindBot.Agent.Knowledge
                 e.SourceStop = ReadSourceStop(def, s);
                 e.Reach = ReadRemovalReach(e, def, s);
                 e.Shield = ReadShield(def, s, c);
+                if ((def.CodeExpr ?? "").Contains("EFFECT_CANNOT_ACTIVATE"))
+                {
+                    Match atk = Regex.Match(DeepText(s, def.ValueExpr) + " " + (def.ValueExpr ?? ""), @"IsMonsterEffect\(\)[\s\S]*?IsAttackAbove\((\d+)\)");
+                    if (atk.Success)
+                    {
+                        e.LockAtkAbove = int.Parse(atk.Groups[1].Value, CultureInfo.InvariantCulture);
+                        e.LockBoth = Regex.IsMatch(def.TargetRangeExpr ?? "", @"^\s*1\s*,\s*1\s*$");
+                    }
+                }
                 e.GuardsSelf = e.Kind == "유발 즉시 효과" && Regex.IsMatch(DeepText(s, def.Operation), @"EFFECT_INDESTRUCTABLE_EFFECT[\s\S]*?(?<![\w.])c:RegisterEffect\(");
                 AddLinks(e, s, def);
                 ReadProfile(c, e);

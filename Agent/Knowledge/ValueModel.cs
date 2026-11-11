@@ -72,7 +72,10 @@ namespace WindBot.Agent.Knowledge
             { "removal.self_guard", 0.1 }, // a destroy on a card that can answer it by making itself indestructible (Number F0 ⑤): share of its worth still taken
             { "removal.material", 15 },  // a face-up monster with nothing left to use from the field, with a Level: Xyz material on top of removal.body (learnable)
             { "removal.reserve", 3 },    // a detach-paid removal (Detonator ①): hold × max(1, this / uses left this turn), keeping the last uses for bigger targets (learnable)
-            { "removal.hold", 1.0 },     // a removal fires only when what it takes now beats this × its interruption value (kept for a later window; learnable)
+            { "removal.plays_per_card", 0.5 }, // "hand" hold mode: expected plays left per card in the opponent's hand (learnable)
+            { "removal.future_extra", 0.3 },  // "future" hold mode: chance an Extra Deck monster of theirs still comes this turn (learnable)
+            { "removal.hold", 1.0 },
+            { "xyz_now.hold", 5 },       // a quick Xyz summon on the opponent's turn (Plasma Hole ②) fires when the interruptions it adds beat this (learnable)     // a removal fires only when what it takes now beats this × its interruption value (kept for a later window; learnable)
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
             { "battle.lethal", 10000 },  // planner: the end board deals lethal damage in the Battle Phase still ahead

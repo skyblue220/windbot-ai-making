@@ -1,4 +1,4 @@
-# 체인 중 제거 시험 (상대 턴, 상대 필드: 34909328:2,7511613:2, 체인: Ryzeal Duo Drive 효과 2 [카드 필요: all], 우리 Ryzeal 엑시즈 1장, 소재 제거로 쓰는 제거 남은 1회)
+# 체인 중 제거 시험 (상대 턴, 상대 필드: 34909328:2,7511613:2, 체인: Ryzeal Duo Drive 효과 2 [카드 필요: all], 우리 Ryzeal 엑시즈 1장, 소재 제거로 쓰는 제거 남은 1회, 아껴 둘 값 방식 reserve, 남은 턴 1, 상대 패 5)
 
 ## 지금 없애면 상대가 잃는 값
 
@@ -11,6 +11,16 @@
 - Ryzeal Detonator 효과 1 [양쪽, 대상 지정, 파괴, 상대 발동에 응답]: 발동: 얻는 값 157.4 vs 아껴 둘 값 60.3 (이번 턴 남은 사용 1회) (최대 1장) → Ryzeal Duo Drive 157.4
 - Ryzeal Plasma Hole 효과 1 [앞면, 상대 카드만, 대상 지정, 파괴, 프리 체인]: 발동: 얻는 값 157.4 vs 아껴 둘 값 30 (최대 1장) → Ryzeal Duo Drive 157.4
 - Tornado Dragon 효과 1 [마법·함정, 양쪽, 대상 지정, 파괴, 프리 체인]: 보류: 얻는 값 0 vs 아껴 둘 값 45 (이번 턴 남은 사용 1회) (칠 카드 없음)
+
+## 상대 턴 엑시즈 소환 (Plasma Hole ② 등, 우리 필드: 없음)
+
+- Ryzeal Plasma Hole 효과 2: 만들 수 있는 엑시즈 없음 → 패스
+
+## Lua에서 읽은 효과 발동 봉인 (공격력 기준)
+
+- Super Starslayer TY-PHON - Sky Crisis 효과 1: 공격력 3000 이상 몬스터 효과 발동 불가 (양쪽)
+  - 상대 덱 몬스터 40장 중 해당 4장: Nibiru, the Primal Being 3000, Ryzeal Detonator 3000
+  - 우리 덱에서 같이 막히는 몬스터: Nibiru, the Primal Being 3000, Ryzeal Detonator 3000
 
 ## Lua에서 읽은 보호 (대상 지정 불가 / 파괴 불가 / 응답으로 자기 파괴 내성)
 
