@@ -65,7 +65,11 @@ namespace WindBot.Agent.Knowledge
             { "gy_payoff.now", 1 },        // a "sent to the GY" payoff firing on our turn (docs/GRAVE_PAYOFF.md)
             { "gy_payoff.opp_turn", 0.67 }, // the same payoff on the opponent's turn: OPT fresh again but late (learnable)
             { "gy_payoff.next_turn", 0.3 }, // the same payoff on our next turn: the board may be gone (learnable)
-            { "hit.disrupt_body", 10 },  // a hit that destroys the card but lets its effect resolve (Ghost Ogre): the body lost (learnable)
+            { "hit.disrupt_body", 10 },  // a hit that destroys the card but lets its effect resolve (Ghost Ogre): the body lost, when no field view is given
+            { "removal.body", 10 },      // removing a face-up card that plays from the field: its body, on top of the effects it can still use this turn
+            { "removal.facedown", 20 },  // removing a face-down card: its expected worth (a set interruption, unknown; learnable) (docs/CHAIN_REMOVAL.md)
+            { "removal.partial_stop", 0.25 }, // removing a card whose chained effect needs it only in part (Impermanence's column negation): share of that effect stopped
+            { "removal.hold", 1.0 },     // a removal fires only when what it takes now beats this × its interruption value (kept for a later window; learnable)
             { "battle.destroy", 30 },    // destroying a monster by battle, plus the interruptions it holds on the field
             { "battle.lp", 100 },        // battle damage: this much for 8000 LP (lethal damage always wins)
             { "battle.lethal", 10000 },  // planner: the end board deals lethal damage in the Battle Phase still ahead

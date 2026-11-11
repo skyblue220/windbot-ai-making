@@ -234,6 +234,7 @@ namespace WindBot.Agent
             }
             string oppAct = Config.GetString("AgentDbOppActivate");
             if (oppAct != null && db.HasOpponentDeck) sb.Append(DescribeHitLoss(db, LoadWeights(), oppAct));
+            if (Config.GetBool("AgentDbRemoval", false)) sb.Append(DescribeRemoval(db, LoadWeights(), oppAct == null));
             File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
             Logger.WriteLine("Card DB: " + db.Cards.Count + " cards, constants " + db.ConstantCount + ", script dirs " + db.ScriptDirCount + " → " + Path.GetFullPath(outPath));
         }
@@ -356,6 +357,132 @@ namespace WindBot.Agent
             }
             return sb.ToString();
         }
+
+        /// <summary>
+        /// Chain-aware removal test (docs/CHAIN_REMOVAL.md): the opponent's board AgentDbOppField (ids, Xyz as id:materials,
+        /// 0 = a face-down card), the links on the chain now AgentDbOppChain=id:effect,... (oldest first, the last one is answered;
+        /// a chained card not on the board is added face-up), AgentDbOppUsed, whose turn AgentDbOppTurn (default true) and
+        /// AgentDbOurXyz (our Ryzeal Xyz count, for Plasma Hole). For each of our removals: what each reachable card is worth
+        /// to take now, and fire vs keep.
+        /// </summary>
+        public static string DescribeRemoval(GameCardDb db, ValueWeights w, bool applyUsed)
+        {
+            StringBuilder sb = new StringBuilder();
+            InterruptModel im = new InterruptModel(w);
+            OpponentLossModel loss = new OpponentLossModel(db, w);
+            ChainRemovalModel model = new ChainRemovalModel(db, w, loss, im);
+            TurnPlanner planner = new TurnPlanner(db, w);
+            ZoneSnapshot ours = new StaticZoneView().Snapshot();
+            model.StaticWorth = id => planner.Worth(ours, id);
+            bool theirTurn = Config.GetBool("AgentDbOppTurn", true);
+
+            StaticZoneView z = new StaticZoneView { NormalSummonAvailable = Config.GetBool("AgentDbOppNormalSummon", false) };
+            List<RemovalTarget> targets = new List<RemovalTarget>();
+            string field = Config.GetString("AgentDbOppField") ?? "";
+            foreach (string s in field.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] parts = s.Trim().Split(':');
+                int x, mats;
+                if (!int.TryParse(parts[0], out x)) continue;
+                if (x == 0) { targets.Add(new RemovalTarget { Id = 0, FaceUp = false }); continue; }
+                CardEntry xc = db.EnsureCard(x, true);
+                bool monster = xc != null && (xc.Data.Type & 0x1) != 0;
+                if (monster && parts.Length > 1 && int.TryParse(parts[1], out mats)) z.AddMonster(x, mats);
+                else z.Add(monster ? "MZONE" : "SZONE", x);
+                targets.Add(new RemovalTarget { Id = x, Monster = monster });
+            }
+            string oppGrave = Config.GetString("AgentDbOppGrave");
+            if (oppGrave != null)
+                foreach (string s in oppGrave.Split(','))
+                {
+                    int g;
+                    if (int.TryParse(s.Trim(), out g)) { db.EnsureCard(g, true); z.Add("GRAVE", g); }
+                }
+            if (applyUsed)
+            {
+                string used = Config.GetString("AgentDbOppUsed");
+                int ul = 0;
+                if (used != null)
+                    foreach (string s in used.Split(','))
+                    {
+                        string[] up = s.Trim().Split(':');
+                        int uid, uidx;
+                        if (up.Length < 2 || !int.TryParse(up[0], out uid) || !int.TryParse(up[1], out uidx)) continue;
+                        CardEntry uc = db.EnsureCard(uid, true);
+                        EffectEntry ue = uc != null ? uc.Effects.FirstOrDefault(e => e.Index == uidx) : null;
+                        if (ue == null) continue;
+                        db.OnChaining(++ul, 1, uid, ue.DescIndex.HasValue ? ((long)uid << 20) | (long)ue.DescIndex.Value : 0);
+                        db.OnChainSolved(ul);
+                    }
+                if (ul > 0) db.OnChainEnd();
+            }
+            List<string> chainText = new List<string>();
+            string chain = Config.GetString("AgentDbOppChain");
+            if (chain != null && chain != "none")
+            {
+                string[] links = chain.Split(',');
+                for (int i = 0; i < links.Length; ++i)
+                {
+                    string[] cp = links[i].Trim().Split(':');
+                    int cid, cidx;
+                    if (cp.Length < 2 || !int.TryParse(cp[0], out cid) || !int.TryParse(cp[1], out cidx)) continue;
+                    CardEntry cc = db.EnsureCard(cid, true);
+                    EffectEntry ce = cc != null ? cc.Effects.FirstOrDefault(e => e.Index == cidx) : null;
+                    if (ce == null) { chainText.Add(links[i] + "(효과 없음)"); continue; }
+                    db.OnChaining(50 + i, 1, cid, ce.DescIndex.HasValue ? ((long)cid << 20) | (long)ce.DescIndex.Value : 0);
+                    RemovalTarget tt = targets.FirstOrDefault(x => x.Id == cid && x.Chained == null);
+                    if (tt == null)
+                    {
+                        bool monster = (cc.Data.Type & 0x1) != 0;
+                        tt = new RemovalTarget { Id = cid, Monster = monster };
+                        targets.Add(tt);
+                        if (!ChainRemovalModel.LeavesAfterResolve(cc.Data, ce)) z.Add(monster ? "MZONE" : "SZONE", cid);
+                    }
+                    tt.Chained = ce;
+                    tt.LastLink = i == links.Length - 1;
+                    chainText.Add(cc.Data.Name + " 효과 " + cidx + (ce.SourceStop != null ? " [카드 필요: " + ce.SourceStop + "]" : ""));
+                }
+            }
+            loss.DisruptBody = (card, e, zz) => model.WorthNow(new RemovalTarget { Id = card.Data.Id, Monster = (card.Data.Type & 0x1) != 0, Chained = e, LastLink = true }, zz, theirTurn).Value;
+            int ourXyz = Config.GetInt("AgentDbOurXyz", 1);
+            Func<int, string> name = id => { CardEntry c = id != 0 ? db.Get(id) : null; return c != null ? c.Data.Name : "뒷면 카드"; };
+
+            sb.AppendLine("# 체인 중 제거 시험 (" + (theirTurn ? "상대 턴" : "우리 턴") + ", 상대 필드: " + (field.Length > 0 ? field : "없음")
+                        + ", 체인: " + (chainText.Count > 0 ? String.Join(" → ", chainText.ToArray()) : "없음") + ", 우리 Ryzeal 엑시즈 " + ourXyz + "장)");
+            sb.AppendLine();
+            sb.AppendLine("## 지금 없애면 상대가 잃는 값");
+            sb.AppendLine();
+            foreach (RemovalTarget tt in targets)
+                sb.AppendLine("- " + name(tt.Id) + (tt.Chained != null ? " (체인: 효과 " + tt.Chained.Index + (tt.LastLink ? ", 마지막" : "") + ")" : "") + ": " + model.WorthNow(tt, z, theirTurn).Describe());
+            sb.AppendLine();
+            sb.AppendLine("## 우리 제거 효과: 발동 / 보류");
+            sb.AppendLine();
+            bool chainUp = targets.Any(x => x.LastLink);
+            foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent && x.CopiesInDeck > 0).OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+                foreach (EffectEntry e in c.Effects)
+                {
+                    if (!model.IsRemoval(c, e) || !im.IsInterrupt(c, e)) continue;
+                    bool answers = e.Events.Contains("CHAINING"), free = e.Events.Contains("FREE_CHAIN");
+                    string head = "- " + c.Data.Name + " 효과 " + e.Index + " [" + e.Reach.Describe() + (answers ? ", 상대 발동에 응답" : free ? ", 프리 체인" : "") + "]: ";
+                    if (answers && !chainUp) { sb.AppendLine(head + "체인 없음: 발동 불가"); continue; }
+                    if (!answers && !free) { sb.AppendLine(head + "이 창에서는 발동 불가"); continue; }
+                    bool inHand = e.Range != null && e.Range.Contains("HAND") && (c.Data.Type & 0x1) != 0;
+                    int max = im.MultipliesByCondition(c, e) ? ourXyz : 1;
+                    RemovalChoice ch = model.Choose(c, e, inHand, targets, max, z, theirTurn);
+                    sb.AppendLine(head + ch.Describe() + (ch.Picks.Count > 0 ? " → " + String.Join(", ", ch.Picks.Select(kv => name(kv.Key.Id) + " " + RemovalWorthText(kv.Value)).ToArray()) : ""));
+                }
+            sb.AppendLine();
+            sb.AppendLine("## Lua에서 읽은 '효과 처리에 발동한 카드가 필요한가' (SourceStop)와 제거 범위");
+            sb.AppendLine();
+            foreach (CardEntry c in db.Cards.Values.OrderBy(x => x.Data.Name, StringComparer.Ordinal))
+                foreach (EffectEntry e in c.Effects)
+                    if (e.SourceStop != null || e.Reach != null)
+                        sb.AppendLine("- " + c.Data.Name + " 효과 " + e.Index + ": " + (e.SourceStop != null ? "카드 필요 " + e.SourceStop : "카드 없어도 처리") + (e.Reach != null ? " / 제거 범위: " + e.Reach.Describe() : ""));
+            sb.AppendLine();
+            return sb.ToString();
+        }
+
+        private static string RemovalWorthText(RemovalWorth v) { return v.Value.ToString("0.#"); }
 
         public static string DescribeBait(GameCardDb db, ValueWeights w, OpponentPool pool, string set)
         {

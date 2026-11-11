@@ -126,6 +126,37 @@ namespace WindBot.Agent.Knowledge
         public readonly List<string> SourceZones = new List<string>();
         /// <summary>What the resolution does, as CATEGORY@LOCATION (e.g. TOHAND@DECK, SPECIAL_SUMMON@GRAVE) plus bare categories.</summary>
         public readonly List<string> Moves = new List<string>();
+        /// <summary>
+        /// Does the resolution need the activating card still there (its operation checks the handler's IsRelateToEffect)?
+        /// "all": the whole effect stops when the card leaves (Duo Drive / Detonator attaching from the GY);
+        /// "part": only a part does (Impermanence's column negation); null: the effect resolves without the card (docs/CHAIN_REMOVAL.md).
+        /// </summary>
+        public string SourceStop;
+        /// <summary>Which cards this removal can hit, read from its target / operation functions (null when it removes nothing on the field).</summary>
+        public RemovalReach Reach;
+    }
+
+    /// <summary>The cards a destroy / banish / bounce effect can take (docs/CHAIN_REMOVAL.md 2).</summary>
+    public sealed class RemovalReach
+    {
+        /// <summary>Only the card whose activation it answers (Ghost Ogre: Duel.Destroy(eg)).</summary>
+        public bool ChainCard;
+        public bool FaceUpOnly;
+        public bool SpellTrapOnly;
+        public bool MonsterOnly;
+        /// <summary>Only the opponent's cards (otherwise ours are legal too, e.g. Detonator ①).</summary>
+        public bool OpponentOnly;
+
+        public string Describe()
+        {
+            List<string> p = new List<string>();
+            if (ChainCard) p.Add("발동한 그 카드");
+            if (FaceUpOnly) p.Add("앞면");
+            if (SpellTrapOnly) p.Add("마법·함정");
+            if (MonsterOnly) p.Add("몬스터");
+            p.Add(OpponentOnly ? "상대 카드만" : "양쪽");
+            return String.Join(", ", p.ToArray());
+        }
     }
 
     /// <summary>How an opponent's response affects one of our effects.</summary>
@@ -447,6 +478,58 @@ namespace WindBot.Agent.Knowledge
             return String.Join(" / ", parts.ToArray());
         }
 
+        /// <summary>
+        /// "all" when the operation returns early unless the activating card is still related to the effect
+        /// (if not c:IsRelateToEffect(e) then return end), "part" when only a branch checks it, null when it never does.
+        /// c is any local bound to e:GetHandler().
+        /// </summary>
+        private static string ReadSourceStop(EffectDef def, LuaScript s)
+        {
+            if (def.Operation == null) return null;
+            string op = def.Operation.StartsWith("(inline)") ? def.Operation : s.Body(def.Operation);
+            if (op == null) return null;
+            List<string> names = new List<string> { Regex.Escape("e:GetHandler()") };
+            foreach (Match m in Regex.Matches(op, @"local\s+(\w+)\s*=\s*e:GetHandler\(\)")) names.Add(m.Groups[1].Value);
+            string who = "(?:" + String.Join("|", names.ToArray()) + ")";
+            if (Regex.IsMatch(op, @"if\s+not\s+" + who + @":IsRelateToEffect\(e\)\s+then\s+return\b")) return "all";
+            if (Regex.IsMatch(op, @"(?<![\w.])" + who + @":IsRelateToEffect\(e\)")) return "part";
+            return null;
+        }
+
+        /// <summary>
+        /// Reach of a removal (destroy / banish / bounce to hand or deck) from its Lua: the chkc test of the target function
+        /// (IsFaceup, IsSpellTrap, IsMonster, IsControler(1-tp)), or the answered card itself when the operation removes eg / re's handler.
+        /// </summary>
+        private static RemovalReach ReadRemovalReach(EffectEntry e, EffectDef def, LuaScript s)
+        {
+            bool removes = e.Categories.Contains("DESTROY") || e.Categories.Contains("REMOVE") || e.Categories.Contains("TOHAND") || e.Categories.Contains("TODECK");
+            if (!removes || e.Categories.Contains("SEARCH")) return null;
+            RemovalReach r = new RemovalReach();
+            string op = DeepText(s, def.Operation);
+            if (e.Events.Any(x => x == "CHAINING") && Regex.IsMatch(op, @"Duel\.(Destroy|Remove|SendtoHand|SendtoDeck)\(\s*(eg|re:GetHandler\(\))"))
+            {
+                r.ChainCard = true;
+                r.OpponentOnly = true;
+                return r;
+            }
+            string tg = def.Target == null ? "" : def.Target.StartsWith("(inline)") ? def.Target : (s.Body(def.Target) ?? "");
+            Match chk = Regex.Match(tg, @"if\s+chkc\s+then\s+return\s+([^\n]*)");
+            string test = chk.Success ? chk.Groups[1].Value : "";
+            if (!chk.Success)
+            {
+                // No chkc: the filter passed to SelectTarget / SelectMatchingCard and its locations.
+                Match sel = Regex.Match(tg + DeepText(s, def.Operation), @"Select(?:Target|MatchingCard)\(\s*tp\s*,\s*([^,]+),\s*tp\s*,\s*([^,]+),\s*([^,]+),");
+                if (!sel.Success) return null;
+                test = sel.Groups[1].Value + " " + (s.Body(sel.Groups[1].Value.Replace("s.", "").Trim()) ?? "");
+                if (sel.Groups[2].Value.Trim() == "0") r.OpponentOnly = true;
+            }
+            if (test.Contains("IsFaceup")) r.FaceUpOnly = true;
+            if (test.Contains("IsSpellTrap") || test.Contains("TYPE_SPELL+TYPE_TRAP") || test.Contains("TYPE_SPELL|TYPE_TRAP")) r.SpellTrapOnly = true;
+            else if (test.Contains("IsMonster") || test.Contains("IsLocation(LOCATION_MZONE)")) r.MonsterOnly = true;
+            if (test.Contains("IsControler(1-tp)")) r.OpponentOnly = true;
+            return r;
+        }
+
         private static string ReadNegateScope(EffectEntry e, EffectDef def, LuaScript s)
         {
             string op = DeepText(s, def.Operation);
@@ -660,6 +743,8 @@ namespace WindBot.Agent.Knowledge
                 e.Guard = ReadBattleGuard(def, s, cond);
                 e.NegateScope = ReadNegateScope(e, def, s);
                 e.Response = ReadResponse(e, def, s);
+                e.SourceStop = ReadSourceStop(def, s);
+                e.Reach = ReadRemovalReach(e, def, s);
                 AddLinks(e, s, def);
                 ReadProfile(c, e);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })

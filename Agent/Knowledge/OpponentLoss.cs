@@ -56,6 +56,12 @@ namespace WindBot.Agent.Knowledge
 
         public ValueModel Theirs { get { return _theirs; } }
 
+        /// <summary>
+        /// What a hit that lets the effect resolve (Ghost Ogre: destroy the activating card) takes: the card's worth now, with
+        /// the chained effect resolving unless it needs its card (ChainRemovalModel.WorthNow). Null: the constant hit.disrupt_body.
+        /// </summary>
+        public Func<CardEntry, EffectEntry, IZoneView, double> DisruptBody;
+
         /// <param name="z">The opponent's zones (their hand = revealed cards only).</param>
         /// <param name="pool">Their hidden pool and unknown hand size.</param>
         public HitLoss Loss(CardEntry card, EffectEntry e, HitKind kind, IZoneView z, OpponentPool pool)
@@ -66,7 +72,7 @@ namespace WindBot.Agent.Knowledge
             r.Chain = r.Path.Value;
             if (kind == HitKind.Disrupt)
             {
-                r.Loss = _w.BaseOf("hit.disrupt_body");
+                r.Loss = DisruptBody != null ? DisruptBody(card, e, z) : _w.BaseOf("hit.disrupt_body");
                 return r;
             }
             r.Restart = ExpectedRestart(e, z, pool, r.Notes);

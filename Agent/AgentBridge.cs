@@ -65,6 +65,7 @@ namespace WindBot.Agent
         private TurnPlanner _planner;
         private BaitModel _bait;
         private OpponentLossModel _loss;
+        private ChainRemovalModel _removal;
         private GravePayoffReader _payoff;
         private DuelZoneView _oppZones;
         /// <summary>Plan behind each main-phase option of the current request, and the not yet reached moves of the plan taken.</summary>
@@ -134,6 +135,9 @@ namespace WindBot.Agent
                 _planner = new TurnPlanner(_db, _values.Weights);
                 _bait = new BaitModel(_db, _values.Weights);
                 _loss = new OpponentLossModel(_db, _values.Weights);
+                _removal = new ChainRemovalModel(_db, _values.Weights, _loss, _planner.Interrupts);
+                _removal.StaticWorth = id => _planner.Worth(_zones.Snapshot(), id);
+                _loss.DisruptBody = (card, e, z) => _removal.WorthNow(new RemovalTarget { Id = card.Data.Id, Monster = (card.Data.Type & 0x1) != 0, Chained = e, LastLink = true }, z, _duel.Player == 1).Value;
                 _payoff = new GravePayoffReader(_db, _values.Weights, _planner.HitsFieldCards);
                 ValueModel vm = _values;
                 _planner.NextTurnValue = id => vm.ValueNextTurn(id, _zones).Value;
@@ -349,9 +353,8 @@ namespace WindBot.Agent
         /// </summary>
         /// <summary>
         /// Why an interruption should not answer the opponent's latest chain link, or null to use it:
-        /// - a negation that cannot stop that effect (Impermanence negates monster effects only; a field spell's effect stays);
-        /// - a removal that destroys up to one card per matching monster of ours (Plasma Hole: per Ryzeal Xyz)
-        ///   while the opponent shows too few face-up cards to make it count (int.partial_hold of what it could take).
+        /// - a negation that cannot stop that effect (Impermanence negates monster effects only; a field spell's effect stays).
+        /// Removals (Plasma Hole too) weigh what they take now against keeping them instead: RemovalEstimate.
         /// </summary>
         private string HoldReason(CardEntry c, EffectEntry e)
         {
@@ -365,19 +368,61 @@ namespace WindBot.Agent
                 if (te != null && _db.CanHit(c, e, tc, te) == HitKind.None)
                     return "이 효과(" + tc.Data.Name + " " + te.Index + ")는 무효로 막을 수 없음";
             }
-            if (im.MultipliesByCondition(c, e))
-            {
-                CardLink cond = e.Links.FirstOrDefault(x => x.Role == "condition" && !x.Opponent && x.Targets.Count > 0);
-                if (cond != null)
-                {
-                    HashSet<int> ok = new HashSet<int>(cond.Targets);
-                    int most = _duel.Fields[0].MonsterZone.Count(m => m != null && m.IsFaceup() && ok.Contains(m.Id));
-                    int targets = OpponentFaceUp();
-                    if (most >= 2 && targets > 0 && targets < most && targets <= most * _values.Weights.BaseOf("int.partial_hold"))
-                        return "대상 " + targets + "장뿐 (최대 " + most + "장 가능)";
-                }
-            }
             return null;
+        }
+
+        /// <summary>The opponent's field cards as removal targets, each with its effect on the current chain (if any).</summary>
+        private List<RemovalTarget> OpponentTargets()
+        {
+            List<RemovalTarget> r = new List<RemovalTarget>();
+            ClientField f = _duel.Fields[1];
+            foreach (ClientCard c in f.MonsterZone.Concat(f.SpellZone))
+                if (c != null) r.Add(TargetFor(c));
+            return r;
+        }
+
+        private RemovalTarget TargetFor(ClientCard c)
+        {
+            RemovalTarget t = new RemovalTarget { Id = c.Id, FaceUp = c.IsFaceup() && c.Id != 0, Monster = c.Location == CardLocation.MonsterZone, Theirs = c.Controller == 1, Tag = c };
+            IList<ChainInfo> chain = _duel.CurrentChainInfo;
+            for (int i = 0; i < chain.Count; ++i)
+            {
+                ChainInfo link = chain[i];
+                if (link.ActivatePlayer != 1 || !ReferenceEquals(link.RelatedCard, c)) continue;
+                CardEntry ce = c.Id != 0 ? _db.EnsureCard(c.Id, true) : null;
+                t.Chained = ce != null ? _db.FindEffect(ce, link.ActivateDescription) : null;
+                t.LastLink = i == chain.Count - 1;
+            }
+            return t;
+        }
+
+        /// <summary>The opponent's field card a pick option stands for, as a removal target (null when it is not on the field).</summary>
+        private RemovalTarget TargetOf(DecisionOption o)
+        {
+            if (o.Controller != 1 || o.Sequence < 0) return null;
+            ClientField f = _duel.Fields[1];
+            ClientCard[] zone = o.Location == (int)CardLocation.MonsterZone ? f.MonsterZone : o.Location == (int)CardLocation.SpellZone ? f.SpellZone : null;
+            ClientCard c = zone != null && o.Sequence < zone.Length ? zone[o.Sequence] : null;
+            return c != null ? TargetFor(c) : null;
+        }
+
+        /// <summary>Cards a removal takes at most: one per matching monster of ours for a per-monster removal (Plasma Hole: per Ryzeal Xyz).</summary>
+        private int RemovalMax(CardEntry c, EffectEntry e)
+        {
+            if (!_planner.Interrupts.MultipliesByCondition(c, e)) return 1;
+            CardLink cond = e.Links.FirstOrDefault(x => x.Role == "condition" && !x.Opponent && x.Targets.Count > 0);
+            if (cond == null) return 1;
+            HashSet<int> ok = new HashSet<int>(cond.Targets);
+            return Math.Max(1, _duel.Fields[0].MonsterZone.Count(m => m != null && m.IsFaceup() && ok.Contains(m.Id)));
+        }
+
+        /// <summary>Chain option estimate for a removal: pass value + (what it takes now − what keeping it is worth).</summary>
+        private void RemovalEstimate(DecisionOption o, CardEntry c, EffectEntry e, double pass)
+        {
+            RemovalChoice ch = _removal.Choose(c, e, o.Location == (int)CardLocation.Hand, OpponentTargets(), RemovalMax(c, e), _oppZones, _duel.Player == 1);
+            o.Estimate = pass + ch.Gain - ch.Hold;
+            o.Info = (o.Info ?? "") + " | 제거 " + ch.Describe()
+                   + String.Concat(ch.Picks.Select(kv => " | 대상 " + (_db.Get(kv.Key.Id) != null ? _db.Get(kv.Key.Id).Data.Name : "뒷면") + " " + kv.Value.Describe()).ToArray());
         }
 
         /// <summary>What negating this face-up opponent card until the End Phase takes from them (its effects left this turn).</summary>
@@ -642,6 +687,16 @@ namespace WindBot.Agent
                                 }
                                 else o.Estimate = 2;
                             }
+                            else if (opponentActed && _planner.Interrupts.IsInterrupt(c, e) && _removal != null && _removal.IsRemoval(c, e))
+                            {
+                                // Destroy / banish / bounce in answer to their link (Detonator ①, Ghost Ogre, Tornado Dragon, Plasma Hole ①):
+                                // what it takes now (a spent normal trap's body is nothing) against keeping it (docs/CHAIN_REMOVAL.md).
+                                RemovalEstimate(o, c, e, 0);
+                                HitLoss hl = HitLossNow(c, e);
+                                if (hl != null) o.Info = (o.Info ?? "") + " | " + hl.Describe();
+                            }
+                            else if (!opponentActed && _removal != null && _removal.IsRemoval(c, e) && e.Events.Contains("FREE_CHAIN") && _planner.Interrupts.IsInterrupt(c, e))
+                                RemovalEstimate(o, c, e, 1); // a free-chain removal in an open window (their Standby / Main): only when it beats keeping it
                             else if (opponentActed && _planner.Interrupts.IsInterrupt(c, e))
                             {
                                 string skip = HoldReason(c, e);
@@ -721,6 +776,15 @@ namespace WindBot.Agent
                                 // Removing an opponent's card: the more it is worth to them, the earlier we pick it.
                                 double threat = 0;
                                 if (o.CardId != 0 && _db.EnsureCard(o.CardId, true) != null) threat = _planner.Worth(z, o.CardId);
+                                RemovalTarget rt = negate || _removal == null ? null : TargetOf(o);
+                                if (rt != null)
+                                {
+                                    // A card on the field: what removing it takes now (an activated normal trap: nothing; a chained effect
+                                    // resolves anyway unless it needs its card).
+                                    RemovalWorth wn = _removal.WorthNow(rt, _oppZones, _duel.Player == 1);
+                                    threat = wn.Value;
+                                    o.Info = (o.Info ?? "") + " | 지금 없애면 " + wn.Describe();
+                                }
                                 if (negate)
                                 {
                                     // Negating until the End Phase takes what the card can still use this turn.
