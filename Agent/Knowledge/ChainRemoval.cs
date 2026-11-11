@@ -108,9 +108,10 @@ namespace WindBot.Agent.Knowledge
             if (c == null) return r;
             if (t.Chained != null && LeavesAfterResolve(c.Data, t.Chained))
             {
-                r.Notes.Add("발동 중인 일반 마법·함정: 처리 후 어차피 묘지로");
+                // Its activation resolves anyway and the card leaves the field after it: nothing to take, not a target.
+                r.Notes.Add("발동 중인 일반·속공 마법/일반 함정: 처리 후 필드를 벗어남, 제거 대상 아님");
+                return r;
             }
-            else
             {
                 // A card that plays from the field (ignition / quick / interruption effects): what it can still use this turn plus
                 // its body (removal.body), so a spent Detonator (no material left) is worth far less than an untouched one.
@@ -123,6 +124,13 @@ namespace WindBot.Agent.Knowledge
                     double residual = _loss.TurnResidual(c, z, _im, theirTurn, left);
                     r.Body = residual + _w.BaseOf("removal.body");
                     r.Notes.Add(left.Count > 0 ? "이번 턴 남은 효과 " + String.Join(", ", left.ToArray()) : "이번 턴 남은 효과 없음");
+                    // A continuous / field / equip spell or trap stays on the field and keeps working on later turns (its
+                    // activation, if chained now, resolves too): at least its card worth.
+                    if ((c.Data.Type & 0x1) == 0 && StaticWorth != null)
+                    {
+                        double stat = StaticWorth(t.Id);
+                        if (stat > r.Body) { r.Body = stat; r.Notes.Add("필드에 남는 마법·함정: 카드 가치 " + RemovalWorth.F(stat)); }
+                    }
                 }
                 else
                 {
@@ -139,6 +147,14 @@ namespace WindBot.Agent.Knowledge
             }
             r.Value = r.Body + r.Stop;
             return r;
+        }
+
+        /// <summary>The card is resolving a normal / quick-play spell or normal trap activation: it leaves the field anyway.</summary>
+        public bool LeavesNow(RemovalTarget t)
+        {
+            if (t.Chained == null || t.Id == 0) return false;
+            CardEntry c = _db.EnsureCard(t.Id, true);
+            return c != null && LeavesAfterResolve(c.Data, t.Chained);
         }
 
         /// <summary>Can the removal (c, e) pick this card?</summary>
@@ -163,7 +179,7 @@ namespace WindBot.Agent.Knowledge
             RemovalChoice r = new RemovalChoice { Max = Math.Max(1, max) };
             r.Hold = _im.Value(c, e, inHand) * _w.BaseOf("removal.hold");
             // A response that hits the answered card (Ghost Ogre) also needs that effect to be one it can answer (CanHit).
-            var scored = targets.Where(t => CanReach(e, t) && (!e.Reach.ChainCard || _db.CanHit(c, e, _db.EnsureCard(t.Id, true), t.Chained) != HitKind.None)).Select(t => new KeyValuePair<RemovalTarget, RemovalWorth>(t, WorthNow(t, z, theirTurn)))
+            var scored = targets.Where(t => CanReach(e, t) && !LeavesNow(t) && (!e.Reach.ChainCard || _db.CanHit(c, e, _db.EnsureCard(t.Id, true), t.Chained) != HitKind.None)).Select(t => new KeyValuePair<RemovalTarget, RemovalWorth>(t, WorthNow(t, z, theirTurn)))
                                 .Where(kv => kv.Value.Value > 0).OrderByDescending(kv => kv.Value.Value).Take(r.Max).ToList();
             r.Picks.AddRange(scored);
             r.Gain = scored.Sum(kv => kv.Value.Value);

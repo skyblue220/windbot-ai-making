@@ -7,7 +7,7 @@ Detonator ①이 발동 중인 Infinite Impermanence를 파괴하는 문제에�
 ## 1. 근거로 삼는 규칙
 
 1. 발동된 효과는 그 카드를 없애도 처리된다.
-2. 일반 마법, 속공 마법, 일반 함정은 처리 후 어차피 묘지로 간다(`ChainRemovalModel.LeavesAfterResolve`: 카드의 발동이면서 지속·필드·장착·펜듈럼이 아닌 마법·함정). 체인 중에 없애도 몸체 가치는 0이다.
+2. 일반 마법, 속공 마법, 일반 함정은 처리 후 어차피 필드를 벗어난다(`ChainRemovalModel.LeavesAfterResolve`: 카드의 발동이면서 지속·필드·장착·펜듈럼이 아닌 마법·함정). 그래서 발동 중인 이런 카드는 제거 대상에서 뺀다(`LeavesNow`, 2026-11-11 사용자 결정). 발동 시 처리가 있는 지속·필드·장착 마법·함정(예: 발동 시 서치하는 필드 마법)은 체인 중에 없애도 발동 처리는 그대로 되지만, 카드가 필드에 남아 계속 작동하므로 제거 대상에 넣고 값을 높게 본다(3절).
 3. 예외: 효과 처리 중에 발동한 카드 자신을 확인하는 효과는 그 카드를 없애면 멈춘다. Lua에서 `c:IsRelateToEffect(e)`(c = `e:GetHandler()`)로 읽고 `EffectEntry.SourceStop`에 저장한다.
    - `all`: `if not c:IsRelateToEffect(e) then return end`, 즉 효과 전체가 멈춤. 예: Duo Drive ②, Detonator ②(묘지에서 소재 붙이기), Mereologic Aggregator ②.
    - `part`: 일부 분기만 확인. 예: Impermanence의 같은 세로열 무효.
@@ -23,8 +23,9 @@ Detonator ①이 발동 중인 Infinite Impermanence를 파괴하는 문제에�
 | 대상 | 값 |
 |---|---|
 | 뒷면 카드 | `removal.facedown` (20) |
-| 체인 위에서 발동 중인 일반 마법·함정 | 몸체 0 |
+| 체인 위에서 발동 중인 일반·속공 마법, 일반 함정 | 0, 제거 대상 아님 |
 | 필드에서 쓰는 효과(기동·즉시·방해)가 있는 카드 | 이번 턴 남은 효과(`OpponentLossModel.TurnResidual`) + `removal.body` (10) |
+| 필드에 남는 마법·함정(지속·필드·장착)으로 위 효과가 있는 카드 | 위 값과 카드 가치(planner Worth) 중 큰 값: 다음 턴에도 계속 작동 |
 | 그런 효과가 없는 카드(지속 효과뿐, 일반 몬스터) | 카드 가치(planner Worth) |
 | (추가) 체인 위 효과가 카드를 필요로 함 | `all`이면 그 효과의 체인 가치 전체, `part`이면 × `removal.partial_stop` (0.25) |
 
@@ -52,7 +53,9 @@ Detonator ①이 발동 중인 Infinite Impermanence를 파괴하는 문제에�
 
 | 상황 | Ghost Ogre | Detonator ① | Plasma Hole ① | Tornado Dragon |
 |---|---|---|---|---|
-| 우리 턴, 상대 Impermanence 발동 중(상대 필드 Detonator 2소재, Duo Drive 2소재) | 응답 불가(카드의 발동) | 발동 → **Detonator** (60.1; Imperm은 8.8) | 발동 → Detonator, Duo Drive | 보류 (Imperm 8.8 < 15) |
+| 우리 턴, 상대 Impermanence 발동 중(상대 필드 Detonator 2소재, Duo Drive 2소재) | 응답 불가(카드의 발동) | 발동 → **Detonator** (60.1; Imperm은 대상 아님) | 발동 → Detonator, Duo Drive | 칠 카드 없음 (Imperm 제외) |
+| 우리 턴, 상대 Ryzeal Cross 발동 중(필드 마법) + Detonator 2소재 | 응답 불가(카드의 발동) | 발동 → Detonator 60.1 | 발동 → Detonator, Cross 53 | 발동 → Cross 53 |
+| 상대 턴, Cross 앞면 + 미사용 Detonator, 체인 없음 | 발동 불가 | 발동 불가 | 발동 → Detonator 73 | 발동 → Cross 53 |
 | 상대 턴, Duo Drive ② 체인(묘지에 Ryzeal) | 발동 → Duo Drive 157.4 (② 정지 포함) | 발동 → Duo Drive | 발동 → Duo Drive, Detonator | 칠 카드 없음 |
 | 상대 스탠바이, 미사용 Detonator + 뒷면 1장, 체인 없음 | 발동 불가 | 발동 불가 | **발동** → Detonator 73 | 발동 → 뒷면 20 |
 | 상대 턴, Detonator ① 체인(소재 0장 남음) | 보류 (10) | 보류 | 보류 | 칠 카드 없음 |

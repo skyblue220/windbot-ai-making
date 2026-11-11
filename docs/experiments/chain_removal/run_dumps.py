@@ -10,7 +10,7 @@ PI = os.environ.get("PROJECTIGNIS", os.path.normpath(os.path.join(HERE, "..", ".
 paths = [os.path.join(PI, 'expansions', 'cards.cdb'), os.path.join(PI, 'repositories', 'delta-bagooska', 'cards.delta.cdb')]
 B = base64.b64encode(json.dumps(paths).encode()).decode()
 
-ICE, SWORD, DUO, DET, IMPERM = 8633261, 35844557, 7511613, 34909328, 10045474
+ICE, SWORD, DUO, DET, IMPERM, CROSS = 8633261, 35844557, 7511613, 34909328, 10045474, 6798031
 def L(*x): return ",".join(str(i) for i in x)
 
 cases = {
@@ -24,6 +24,10 @@ cases = {
  "det_spent":       {"AgentDbOppField": "%d:0" % DET, "AgentDbOppChain": "%d:1" % DET, "AgentDbOurXyz": "1"},
  # their turn: Duo Drive (3) search on the chain, (2) already used
  "duo_search":      {"AgentDbOppField": "%d:1" % DUO, "AgentDbOppChain": "%d:3" % DUO, "AgentDbOppUsed": "%d:2" % DUO, "AgentDbOurXyz": "1"},
+ # our turn: they activate Ryzeal Cross (a field spell: stays after resolving) beside Detonator (2)
+ "cross_on_chain":  {"AgentDbOppTurn": "false", "AgentDbOppField": "%d:2" % DET, "AgentDbOppChain": "%d:1" % CROSS, "AgentDbOurXyz": "2"},
+ # their turn: Ryzeal Cross face-up, (3) unused, no chain
+ "cross_standby":   {"AgentDbOppField": L(CROSS, "%d:2" % DET), "AgentDbOurXyz": "1"},
 }
 
 if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
