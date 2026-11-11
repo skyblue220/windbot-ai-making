@@ -360,7 +360,14 @@ namespace WindBot.Agent.Knowledge
                 sb.Append('|');
                 foreach (int i in Spells.OrderBy(x => x)) sb.Append(i).Append(',');
                 foreach (int i in Inactive.OrderBy(x => x)) sb.Append('s').Append(i).Append(',');
-                sb.Append('|').Append(Grave.Values.Sum()).Append('|');
+                // Which cards, not how many: GY targets (Detonator ②, Node ②, Plugin, GY payoffs), what searches still find and the Extra Deck left all change the rest of the turn.
+                sb.Append('|');
+                foreach (var kv in Grave.Where(x => x.Value > 0).OrderBy(x => x.Key)) sb.Append(kv.Key).Append('x').Append(kv.Value).Append(',');
+                sb.Append("|d");
+                foreach (var kv in Deck.OrderBy(x => x.Key)) sb.Append(kv.Value).Append(',');
+                sb.Append("|e");
+                foreach (var kv in Extra.OrderBy(x => x.Key)) sb.Append(kv.Value).Append(',');
+                sb.Append('|').Append(Bonus.ToString("R", System.Globalization.CultureInfo.InvariantCulture)).Append('|');
                 foreach (string u in Used.OrderBy(x => x, StringComparer.Ordinal)) sb.Append(u).Append(',');
                 sb.Append('|').Append(NS ? 1 : 0).Append('|').Append(HandSpent).Append('|').Append(Draws).Append('|').Append(ExtraRank).Append('/').Append(AttackRank);
                 foreach (int i in Bottom.OrderBy(x => x)) sb.Append('b').Append(i);
@@ -462,6 +469,7 @@ namespace WindBot.Agent.Knowledge
             PlanResult best = stop;
             var firstMoves = Moves(s, 0).ToList();
             int hintAt = HintStart(firstMoves);
+            HintStartedAt = hintAt;
             if (Threads > 1 && firstMoves.Count > 0)
             {
                 PlanParallel(z, firstMoves, hintAt, byFirstMove);
@@ -505,7 +513,7 @@ namespace WindBot.Agent.Knowledge
                 var second = Moves(s1, 1).ToList();
                 if (h1 >= 0)
                 {
-                    int h = second.FindIndex(mv => HintMatches(h1, mv.Key));
+                    int h = HintIndex(second, h1);
                     if (h > 0) { var f = second[h]; second.RemoveAt(h); second.Insert(0, f); }
                 }
                 foreach (var mv in second) units.Add(Tuple.Create(i, mv, HintNext(h1, mv.Key)));
@@ -573,7 +581,39 @@ namespace WindBot.Agent.Knowledge
 
         // ---------------------------------------------------------- plan hint (principal line first)
 
-        private static string StepKey(PlanMove m) { return m.Kind + "|" + m.CardId + "|" + m.EffectIndex + "|" + m.TargetId; }
+        /// <summary>Debug: the value of walking only the hinted line from this state, and how many hint steps it took.</summary>
+        public PlanResult WalkHint(ZoneSnapshot z, out int steps)
+        {
+            _memo = new MemoTable();
+            St s = FromSnapshot(z, _db);
+            var firsts = Moves(s, 0).ToList();
+            int at = HintStart(firsts);
+            steps = 0;
+            var path = new List<KeyValuePair<List<PlanMove>, int>>();
+            var moves = firsts;
+            int k = 0;
+            while (at >= 0 && at < _hint.Count && k < MaxDepth)
+            {
+                int h = HintIndex(moves, at);
+                if (h < 0) break;
+                path.Add(new KeyValuePair<List<PlanMove>, int>(moves[h].Key, k));
+                s = moves[h].Value;
+                at += moves[h].Key.Count;
+                steps = at;
+                ++k;
+                moves = Moves(s, k).ToList();
+            }
+            PlanResult r = StopResult(s);
+            for (int i = path.Count - 1; i >= 0; --i) r = Combine(path[i].Key, r, path[i].Value);
+            return r;
+        }
+
+        /// <summary>Step identity for the hint: the label carries materials, costs, detaches and targets, which tell variants of one card's move apart.</summary>
+        private static string StepKey(PlanMove m) { return m.Kind + "|" + m.CardId + "|" + m.EffectIndex + "|" + m.TargetId + "|" + m.Text; }
+
+        /// <summary>Where the last Plan picked up the hint (-1: not at all) and how long the hint was.</summary>
+        public int HintStartedAt { get; private set; }
+        public int HintLength { get { return Hint != null ? Hint.Count : 0; } }
 
         /// <summary>Hint position the first moves continue from: the earliest step some first move starts with (the steps before it are done).</summary>
         private int HintStart(List<KeyValuePair<List<PlanMove>, St>> firstMoves)
@@ -592,6 +632,18 @@ namespace WindBot.Agent.Knowledge
             for (int i = 0; i < steps.Count; ++i)
                 if (StepKey(_hint[at + i]) != StepKey(steps[i])) return false;
             return true;
+        }
+
+        /// <summary>
+        /// The move that follows the hint from position <paramref name="at"/>: the longest match, since a summon comes
+        /// both alone and with its trigger, and taking it alone leaves the hinted trigger behind. -1: none.
+        /// </summary>
+        private int HintIndex(List<KeyValuePair<List<PlanMove>, St>> moves, int at)
+        {
+            int best = -1;
+            for (int i = 0; i < moves.Count; ++i)
+                if (HintMatches(at, moves[i].Key) && (best < 0 || moves[i].Key.Count > moves[best].Key.Count)) best = i;
+            return best;
         }
 
         /// <summary>Hint position after taking these steps, or -1 when they leave the hinted line.</summary>
@@ -622,15 +674,22 @@ namespace WindBot.Agent.Knowledge
             bool truncated = false;
             if (k < MaxDepth)
             {
-                if (--_budget > 0 && _clock.ElapsedMilliseconds < _moveDeadline)
+                bool inTime = --_budget > 0 && _clock.ElapsedMilliseconds < _moveDeadline;
+                // Out of time, the hinted step is still taken (only it): the line found before is always read to its end.
+                if (inTime || (hintAt >= 0 && hintAt < (_hint != null ? _hint.Count : 0)))
                 {
                     var moves = Moves(s, k).ToList();
                     if (hintAt >= 0)
                     {
                         // The hinted step first, while the budget is fresh.
-                        int h = moves.FindIndex(mv => HintMatches(hintAt, mv.Key));
+                        int h = HintIndex(moves, hintAt);
                         if (h > 0) { var first = moves[h]; moves.RemoveAt(h); moves.Insert(0, first); }
                         if (h < 0) hintAt = -1;
+                        if (!inTime)
+                        {
+                            truncated = moves.Count > (h >= 0 ? 1 : 0);
+                            moves = h >= 0 ? moves.GetRange(0, 1) : new List<KeyValuePair<List<PlanMove>, St>>();
+                        }
                     }
                     foreach (var mv in moves)
                     {

@@ -75,9 +75,9 @@
   ]
  },
  "ice_vs_det": {
-  "plan": 473.2,
-  "terms": "흐름 171.2 + 턴 종료 방해 154.7 + 후속 44.6 + 전투 102.6 − 효율 1장",
-  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Infernal Flame Banshee 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Ext Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Ext Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sword Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Ice Ryzeal → Node Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Node Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Sword Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과) | 전투: 공격 제약: 랭크 4 엑시즈만, Ryzeal Detonator → Ryzeal Detonator 파괴, Ryzeal Duo Drive 직접 2500, Infernal Flame Banshee 직접 1700",
+  "plan": 478.7,
+  "terms": "흐름 167.8 + 턴 종료 방해 154.7 + 후속 53.6 + 전투 102.6 − 효율 1장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Infernal Flame Banshee 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Ext Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Ext Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sword Ryzeal] → Ryzeal Plugin → Ryzeal Cross 세트 카드 발동 → Node Ryzeal 기동(2) [코스트: Ryzeal Plugin] → Ice Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Node Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Cross 기동(3) [덱으로: Ryzeal Plugin, Star Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과) | 전투: Ryzeal Detonator → Ryzeal Detonator 파괴, Ryzeal Duo Drive 직접 2500, Infernal Flame Banshee 직접 1700",
   "ice_chain": 101.6,
   "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
   "extra_cost_order": [
@@ -100,9 +100,9 @@
   ]
  },
  "ice_vs_duo": {
-  "plan": 427.5,
-  "terms": "흐름 138.2 + 턴 종료 방해 156.8 + 후속 43.8 + 전투 88.8 − 효율 1장",
-  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Star Ryzeal → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Star Ryzeal 룰 특수 소환 [떼기: Sword Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Infernal Flame Banshee 기동(1) [떼기: Ice Ryzeal] → Ext Ryzeal → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Ext Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Sword Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Ext Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Ice Ryzeal → Ext Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Eclipse Twins → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Sword Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Eclipse Twins(Ryzeal Detonator 소재, 상대 턴 묘지 효과) | 전투: 공격 제약: 랭크 4 엑시즈만, Ryzeal Detonator → Ryzeal Duo Drive 파괴 500, Ryzeal Duo Drive 직접 2500, Infernal Flame Banshee 직접 1700",
+  "plan": 431.8,
+  "terms": "흐름 132.8 + 턴 종료 방해 156.8 + 후속 53.6 + 전투 88.8 − 효율 1장",
+  "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Infernal Flame Banshee 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Ext Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Ext Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sword Ryzeal] → Ryzeal Plugin → Ryzeal Cross 세트 카드 발동 → Node Ryzeal 기동(2) [코스트: Ryzeal Plugin] → Ice Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Node Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Eclipse Twins → Ryzeal Cross 기동(3) [덱으로: Ryzeal Plugin, Star Ryzeal] +드로우 | 방해: Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Eclipse Twins(Ryzeal Detonator 소재, 상대 턴 묘지 효과) | 전투: Ryzeal Detonator → Ryzeal Duo Drive 파괴 500, Ryzeal Duo Drive 직접 2500, Infernal Flame Banshee 직접 1700",
   "ice_chain": 101.6,
   "ice_chain_path": "Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4",
   "extra_cost_order": [

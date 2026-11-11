@@ -429,6 +429,23 @@ namespace WindBot.Agent
                                             .OrderByDescending(x => x.Value).Take(10))
                 sb.AppendLine("  - 첫 행동 " + r.Moves[0].Text + " → " + r.Value.ToString("0.#"));
             if (planner.Exhausted) sb.AppendLine("- (탐색 예산 소진: 일부 경로만 확인)");
+            int replay = Config.GetInt("AgentDbPlanReplay", 0);
+            if (replay > 0)
+            {
+                // Re-plan the same state for a short time with the plan just found as the hint: it must not come out worse.
+                long millis = planner.MillisPerPlan;
+                planner.MillisPerPlan = replay;
+                planner.Hint = new List<PlanMove>(best.Moves);
+                int walked;
+                PlanResult walk = planner.WalkHint(zones.Snapshot(), out walked);
+                sb.AppendLine("- 힌트 라인만 따라가기: " + walked + "/" + best.Moves.Count + "단계, " + walk.Value.ToString("0.#"));
+                PlanResult again = planner.Plan(zones.Snapshot(), out byFirst, out stop);
+                planner.MillisPerPlan = millis;
+                sb.AppendLine("- 같은 상태 재계획 (" + replay + " ms, 직전 계획을 힌트로, 힌트 " + planner.HintStartedAt + "/" + best.Moves.Count + "단계부터): "
+                              + again.Value.ToString("0.#") + (again.Value + 0.05 < best.Value ? " ← 힌트 라인을 놓침 (직전 " + best.Value.ToString("0.#") + ")" : " (직전 " + best.Value.ToString("0.#") + " 이상)"));
+                sb.AppendLine("  - " + again.Describe());
+                planner.Hint = null;
+            }
             return sb.ToString();
         }
 

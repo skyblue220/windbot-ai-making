@@ -284,7 +284,8 @@ namespace WindBot.Agent
                     {
                         _optionPlans[o] = p;
                         o.Estimate = p.Value;
-                        o.Info = (o.CardId != 0 ? (_db.Get(o.CardId) != null ? _db.Get(o.CardId).Data.Name : "") + " | " : "") + "계획 " + p.Describe();
+                        o.Info = (o.CardId != 0 ? (_db.Get(o.CardId) != null ? _db.Get(o.CardId).Data.Name : "") + " | " : "") + "계획 " + p.Describe()
+                               + " | 탐색 " + _planner.MillisPerPlan / 1000.0 + "초" + (_planner.HintLength > 0 ? (_planner.HintStartedAt >= 0 ? ", 직전 계획 " + _planner.HintStartedAt + "/" + _planner.HintLength + "단계부터 이어 탐색" : ", 직전 계획과 어긋남") : "");
                         continue;
                     }
                 }
