@@ -146,6 +146,21 @@ namespace WindBot.Agent.Knowledge
         public bool LockBoth;
         /// <summary>The resolution makes its controller draw each time the other player summons for the rest of the turn (Maxx "C", Mulcharmy).</summary>
         public DrawWatch DrawWatch;
+        /// <summary>
+        /// On the other player's turn this effect can be used only in the Battle Phase ("battle"), read from its condition
+        /// (Number 104: Duel.IsBattlePhase(); Exciton Knight: IsTurnPlayer(1-tp) and IsBattlePhase()) or its event
+        /// (Ray Lancer: PHASE_BATTLE_START); null = any phase (docs/VALUE_LEARNING_PLAN.md step 0).
+        /// </summary>
+        public string Window;
+        /// <summary>
+        /// Removes or negates a whole group without picking (Exciton Knight, Nibiru, Ray Lancer ②): "both" when our side is in
+        /// the group too, "opponent" otherwise; null when it picks its cards.
+        /// </summary>
+        public string Mass;
+        /// <summary>Becomes the effect of a card it sends from the Deck (Traptrix Rafflesia ⑤: a "Hole" Normal Trap's activation).</summary>
+        public bool Copies;
+        /// <summary>Picks up to as many cards as our cards matching its condition (Ryzeal Plasma Hole: one per "Ryzeal" Xyz we control).</summary>
+        public bool UpToConditionCount;
     }
 
     /// <summary>
@@ -405,6 +420,7 @@ namespace WindBot.Agent.Knowledge
             if (Cards.TryGetValue(id, out existing)) return existing;
             CardEntry c = AddCard(id, opponent);
             ComputeLinksFor(c);
+            foreach (var cache in _shareCache) cache.Clear(); // a new card on its side
             return c;
         }
 
@@ -658,6 +674,38 @@ namespace WindBot.Agent.Knowledge
             return w;
         }
 
+        /// <summary>"battle" when the condition or event limits the effect to the Battle Phase on the other player's turn.</summary>
+        private static string ReadWindow(EffectEntry e, string cond)
+        {
+            if (e.Events.Any(x => x.Contains("PHASE_BATTLE"))) return "battle";
+            if (!Regex.IsMatch(cond, @"(?<!not\s)Duel\.IsBattlePhase\(\)")) return null;
+            // "(our turn and Main Phase) or (their turn and Battle Phase)" (Exciton Knight): Battle Phase on their turn.
+            if (Regex.IsMatch(cond, @"IsTurnPlayer\(\s*1-tp\s*\)\s*and\s*Duel\.IsBattlePhase\(\)")) return "battle";
+            return Regex.IsMatch(cond, @"\bor\b") ? null : "battle";
+        }
+
+        /// <summary>
+        /// A whole group taken without picking: local g = Duel.GetMatchingGroup(filter, tp, ours, theirs, ...) / GetFieldGroup(tp, ours,
+        /// theirs) that the operation destroys, tributes, banishes, bounces or negates card by card. "both" when "ours" is not 0.
+        /// </summary>
+        private static string ReadMass(string op)
+        {
+            if (Regex.IsMatch(op, @"Select\w*\(")) return null;
+            foreach (Match m in Regex.Matches(op, @"local\s+(\w+)\s*=\s*Duel\.Get(MatchingGroup|FieldGroup)\(([^\n]*)\)"))
+            {
+                string g = m.Groups[1].Value;
+                bool acts = Regex.IsMatch(op, @"Duel\.(Destroy|Release|Remove|SendtoHand|SendtoDeck|SendtoGrave)\(\s*" + g + @"\b")
+                         || (Regex.IsMatch(op, @"\bin\s+" + g + @":Iter\(\)") && op.Contains("NegateEffects("));
+                if (!acts) continue;
+                string[] a = m.Groups[3].Value.Split(',');
+                int first = m.Groups[2].Value == "MatchingGroup" ? 2 : 1;
+                if (a.Length <= first + 1) continue;
+                bool ours = a[first].Trim() != "0", theirs = a[first + 1].Trim() != "0";
+                if (theirs) return ours ? "both" : "opponent";
+            }
+            return null;
+        }
+
         private static string ReadNegateScope(EffectEntry e, EffectDef def, LuaScript s)
         {
             string op = DeepText(s, def.Operation);
@@ -774,12 +822,23 @@ namespace WindBot.Agent.Knowledge
         /// </summary>
         public HitKind CanHit(CardEntry their, EffectEntry theirs, CardEntry our, EffectEntry ours)
         {
+            return CanHit(their, theirs, our, ours, false);
+        }
+
+        /// <param name="ownEvent">
+        /// Count a face-up pick that fires on its own event (Aggregator ③ on going to the GY, Ray Lancer ② at the Battle Phase):
+        /// not a response to the play, but the same card is there to be picked when it fires (PlayShare).
+        /// </param>
+        private HitKind CanHit(CardEntry their, EffectEntry theirs, CardEntry our, EffectEntry ours, bool ownEvent)
+        {
             ResponseFilter f = theirs.Response;
             if (f == null || !ours.Activates) return HitKind.None;
             if (f.Timing == "summons") return HitKind.None; // Nibiru answers a count of summons, not an effect
             // A face-up pick answers a play only when it can be activated at will (Impermanence); a trigger
             // (Aggregator ③ on going to the GY, Ray Lancer at the battle phase) fires on its own event, not in response.
-            if (f.Timing == "target" && theirs.Kind.StartsWith("유발 효과")) return HitKind.None;
+            if (f.Timing == "target" && theirs.Kind.StartsWith("유발 효과") && !ownEvent) return HitKind.None;
+            // Usable only in the Battle Phase (Number 104 ①): Main Phase plays (ignition effects, normal spells, summon triggers) are out of reach.
+            if (theirs.Window == "battle" && !BattleUsable(our, ours)) return HitKind.None;
 
             bool monster = IsMonster(our.Data);
             if (f.EffectType == "monster" && !monster) return HitKind.None;
@@ -801,6 +860,138 @@ namespace WindBot.Agent.Knowledge
             }
             bool negates = theirs.NegateScope != null || theirs.Categories.Contains("NEGATE") || theirs.Categories.Contains("DISABLE") || f.DeclaredName;
             return negates ? HitKind.Negate : HitKind.Disrupt;
+        }
+
+        /// <summary>Can this effect be activated in the Battle Phase: quick effects, traps / quick-play spells, battle triggers.</summary>
+        private static bool BattleUsable(CardEntry c, EffectEntry e)
+        {
+            if (e.Window == "battle" || e.Kind.StartsWith("유발 즉시")) return true;
+            if (e.Kind == "카드의 발동") return (c.Data.Type & 0x4) != 0 || (c.Data.Type & 0x10000) != 0;
+            return e.Events.Any(x => x.Contains("BATTLE") || x.Contains("ATTACK") || x.Contains("DAMAGE"));
+        }
+
+        // ------------------------------------------------------------------ play share (VALUE_LEARNING_PLAN.md step 0)
+
+        private readonly Dictionary<EffectEntry, double>[] _shareCache = { new Dictionary<EffectEntry, double>(), new Dictionary<EffectEntry, double>() };
+
+        /// <summary>
+        /// The deck on the other side of <paramref name="c"/> (own = its own side) with copies: the opponent's list for our cards,
+        /// ours for theirs. When that list is unknown (no opponent deck set), the card's own side stands in for it (a mirror guess).
+        /// </summary>
+        public List<KeyValuePair<CardEntry, int>> Side(CardEntry c, bool own)
+        {
+            Func<CardEntry, int> ours = o => o.Opponent ? 0 : o.CopiesInDeck;
+            Func<CardEntry, int> theirs = o => o.Opponent ? Math.Max(1, o.OpponentCopies) : o.OpponentCopies;
+            bool theirCard = c.Opponent;
+            Func<CardEntry, int> pick = (theirCard ^ own) ? ours : theirs;
+            List<KeyValuePair<CardEntry, int>> r = Cards.Values.Select(o => new KeyValuePair<CardEntry, int>(o, pick(o))).Where(x => x.Value > 0).ToList();
+            if (r.Count == 0)
+            {
+                pick = (theirCard ^ own) ? theirs : ours;
+                r = Cards.Values.Select(o => new KeyValuePair<CardEntry, int>(o, pick(o))).Where(x => x.Value > 0).ToList();
+            }
+            return r;
+        }
+
+        /// <summary>A play of that side's own turn: an activation that is not itself an answer to the other player (hand traps, draw watchers).</summary>
+        private static bool OwnTurnPlay(EffectEntry e)
+        {
+            if (!e.Activates || e.DrawWatch != null) return false;
+            ResponseFilter f = e.Response;
+            return f == null || !(f.Timing == "chain" || f.Timing == "solving" || f.Timing == "summons");
+        }
+
+        /// <summary>Can this card stand on the field (and so be picked there): monsters, traps, continuous / field / equip spells.</summary>
+        private static bool Stands(CardEntry c)
+        {
+            long t = c.Data.Type;
+            return (t & 0x1) != 0 || (t & 0x4) != 0 || ((t & 0x2) != 0 && (t & (0x20000 | 0x80000 | 0x40000)) != 0);
+        }
+
+        /// <summary>
+        /// Share (0..1) of the other side's plays this effect can work on, read from Lua against that side's deck list:
+        /// - a response or face-up pick: their own-turn activations it answers (CanHit);
+        /// - an ATK lock (TY-PHON ①): their activations of monsters at or above that ATK;
+        /// - a removal that picks or takes a group: their cards that can stand on the field and fit its reach;
+        /// - a draw watcher: their summons from the watched locations.
+        /// -1 when none applies (the effect does not depend on what they play, e.g. a destroy replacement).
+        /// own = the same share on the effect's own side (an ATK lock on both players also stops our monsters).
+        /// </summary>
+        public double PlayShare(CardEntry c, EffectEntry e, bool own = false)
+        {
+            double v;
+            Dictionary<EffectEntry, double> cache = _shareCache[own ? 1 : 0];
+            if (cache.TryGetValue(e, out v)) return v;
+            v = ComputePlayShare(c, e, own);
+            cache[e] = v;
+            return v;
+        }
+
+        private double ComputePlayShare(CardEntry c, EffectEntry e, bool own)
+        {
+            List<KeyValuePair<CardEntry, int>> side = Side(c, own);
+            double hit = 0, all = 0;
+            ResponseFilter f = e.Response;
+            if (e.Mass == null && (e.LockAtkAbove > 0 || (f != null && f.Timing != "summons")))
+            {
+                HashSet<int> userMain = null;
+                if (f != null && f.DeclaredName) // the declared card must be in the user's Main Deck (Crossout Designator banishes a copy)
+                    userMain = new HashSet<int>(Side(c, !own).Where(x => (x.Key.Data.Type & (0x40 | 0x2000 | 0x800000 | 0x4000000)) == 0).Select(x => x.Key.Data.Id));
+                foreach (var kv in side)
+                    foreach (EffectEntry oe in kv.Key.Effects.Where(OwnTurnPlay))
+                    {
+                        all += kv.Value;
+                        bool h = e.LockAtkAbove > 0
+                            ? (kv.Key.Data.Type & 0x1) != 0 && kv.Key.Data.Atk >= e.LockAtkAbove
+                            : CanHit(c, e, kv.Key, oe, true) != HitKind.None && (userMain == null || userMain.Contains(kv.Key.Data.Id));
+                        if (h) hit += kv.Value;
+                    }
+                return all > 0 ? hit / all : 0;
+            }
+            if (e.Mass != null || e.Reach != null)
+            {
+                RemovalReach r = e.Reach;
+                foreach (var kv in side)
+                {
+                    CardEntry o = kv.Key;
+                    all += kv.Value;
+                    if (!Stands(o)) continue;
+                    bool monster = (o.Data.Type & 0x1) != 0;
+                    if (e.Mass != null && e.NegateScope == "monster" && !monster) continue; // Ray Lancer ②: their monsters
+                    if (e.Mass == null && r != null)
+                    {
+                        if (r.ChainCard) { hit += kv.Value; continue; } // the card it answers is there by definition
+                        if (r.MonsterOnly && !monster) continue;
+                        if (r.SpellTrapOnly && monster) continue;
+                        if (r.FaceUpOnly && (o.Data.Type & 0x4) != 0 && (o.Data.Type & 0x20000) == 0) continue; // set face-down traps
+                    }
+                    hit += kv.Value;
+                }
+                return all > 0 ? hit / all : 0;
+            }
+            if (e.DrawWatch != null)
+            {
+                foreach (var kv in side)
+                {
+                    CardEntry o = kv.Key;
+                    List<KeyValuePair<bool, string>> summons = new List<KeyValuePair<bool, string>>();
+                    if ((o.Data.Type & 0x1) != 0)
+                    {
+                        if ((o.Data.Type & (0x40 | 0x2000 | 0x800000 | 0x4000000)) != 0) summons.Add(new KeyValuePair<bool, string>(true, "EXTRA"));
+                        else summons.Add(new KeyValuePair<bool, string>(o.Effects.Any(x => x.Kind.StartsWith("룰 특수 소환")), "HAND"));
+                    }
+                    foreach (EffectEntry oe in o.Effects.Where(x => x.Activates))
+                        foreach (string m in oe.Moves.Where(x => x.StartsWith("SPECIAL_SUMMON@")))
+                            summons.Add(new KeyValuePair<bool, string>(true, m.Substring("SPECIAL_SUMMON@".Length)));
+                    foreach (var s in summons)
+                    {
+                        all += kv.Value;
+                        if (e.DrawWatch.Hits(s.Key, s.Value)) hit += kv.Value;
+                    }
+                }
+                return all > 0 ? hit / all : 0;
+            }
+            return -1;
         }
 
         /// <summary>Cards on the other side whose responses can answer this effect, e.g. "Ash Blossom & Joyous Spring ×2(무효)".</summary>
@@ -885,6 +1076,12 @@ namespace WindBot.Agent.Knowledge
                     }
                 }
                 e.GuardsSelf = e.Kind == "유발 즉시 효과" && Regex.IsMatch(DeepText(s, def.Operation), @"EFFECT_INDESTRUCTABLE_EFFECT[\s\S]*?(?<![\w.])c:RegisterEffect\(");
+                e.Window = ReadWindow(e, DeepText(s, def.Condition));
+                e.Mass = ReadMass(DeepText(s, def.Operation));
+                string copyText = DeepText(s, def.Cost) + " " + DeepText(s, def.Target);
+                e.Copies = copyText.Contains("CheckActivateEffect(") && Regex.IsMatch(copyText, @"SetLabelObject\(\s*te\s*\)");
+                // local ct = Duel.GetMatchingGroupCount(...) ... Select...(..., 1, ct, ...): "up to the number of ..." (Plasma Hole).
+                e.UpToConditionCount = Regex.IsMatch(DeepText(s, def.Target), @"local\s+(\w+)\s*=\s*Duel\.GetMatchingGroupCount\([^\n]*\)[\s\S]*Select\w*\([^\n]*,\s*1\s*,\s*\1\s*[,)]");
                 AddLinks(e, s, def);
                 ReadProfile(c, e);
                 foreach (string f in new[] { def.Condition, def.Cost, def.Target, def.Operation })
@@ -1223,6 +1420,7 @@ namespace WindBot.Agent.Knowledge
         {
             foreach (CardEntry c in Cards.Values) c.LinkedFrom.Clear();
             foreach (CardEntry c in Cards.Values) ComputeLinksFor(c);
+            foreach (var cache in _shareCache) cache.Clear(); // the deck lists changed
         }
 
         private void ComputeLinksFor(CardEntry c)

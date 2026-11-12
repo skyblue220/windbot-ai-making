@@ -44,6 +44,63 @@
 
 완료 기준: `agent_values.json`에 카드 id가 붙은 수치가 0개. N104 ①이 배틀 페이즈 한정으로 읽히고, 메인 페이즈 카드를 막을 수 있는 목록에서 빠진다.
 
+#### 0단계 결과 (2026-11-13, 완료)
+
+카드별 수치 31개(`ib.` 9, `is.` 16, `ibt.` 3, `ia.` 2, `imc.` 1)를 코드 기본값과 `agent_values.json`에서 모두 지웠다. 파일에 남아 있어도 읽지 않는다(`ValueWeights.Retired`).
+
+**Lua에서 새로 읽는 사실 (`EffectEntry`)**
+
+| 사실 | 읽는 곳 | 예 |
+|---|---|---|
+| `Window = "battle"` | condition에 `Duel.IsBattlePhase()`(`or` 없음, 또는 `IsTurnPlayer(1-tp) and IsBattlePhase()`), 계기 `PHASE_BATTLE_START` | N104 ①, Exciton, Ray Lancer ② |
+| `Mass` | operation의 `local g = Duel.GetMatchingGroup/GetFieldGroup(…)`을 고르지 않고 통째로 파괴·릴리스·제외·무효. 우리 쪽 위치가 0이 아니면 `both` | Exciton·Nibiru(both), Ray Lancer ②(상대만) |
+| `Copies` | cost/target에 `CheckActivateEffect(` + `SetLabelObject(te)` | Rafflesia ⑤ → 덱에서 보내는 Hole 함정의 값 |
+| `UpToConditionCount` | target의 `local ct = GetMatchingGroupCount(…)` … `Select…(…,1,ct…)` | Plasma Hole |
+
+**상대 플레이 중 맞출 수 있는 비율 (`GameCardDb.PlayShare`)** — 상대 덱 목록(모르면 우리 덱)에서 계산한다.
+- 응답·앞면 선택: 상대가 자기 턴에 하는 발동(다른 쪽에 대한 응답·드로우 감시 제외) 중 `CanHit`이 맞는 비율. 이름 선언(Crossout)은 우리 메인 덱에 있는 카드만.
+- 공격력 봉인(TY-PHON ①): 그 공격력 이상 몬스터의 발동 비율. 양쪽 봉인이면 우리 쪽 같은 비율만큼 깎는다.
+- 제거·전체 제거: 필드에 남을 수 있는 상대 카드(몬스터, 함정, 지속·필드·장착 마법) 중 범위에 맞는 비율.
+- 드로우 감시: 상대 소환(엑스트라, 패에서 일반·룰 소환, 효과의 SPECIAL_SUMMON@위치) 중 감시 위치에 맞는 비율.
+- `CanHit`에 배틀 페이즈 규칙 추가: 배틀 페이즈 한정 응답은 기동 효과·일반 마법·소환 유발 같은 메인 페이즈 플레이를 못 막는다. N104는 Sword ② 등 메인 페이즈 효과의 "막을 수 있는 상대 카드"에서 빠졌다(카드 DB에서 51곳 → 31곳).
+
+**값** — k번째 사용 = 종류 기본값 × P(맞출 플레이가 k개 이상) × 공유 보정 + 가산.
+- 맞출 플레이 수 ~ Poisson(`int.opp_plays` 6 × 비율). 배틀 페이즈에 기다리는 응답은 `int.opp_battle_plays` 1을 쓰고, 배틀 페이즈 한정은 `int.battle_factor` 0.5를 곱한다.
+- 소환 횟수 조건(Nibiru 5회): × P(Poisson(`int.opp_summons` 6) ≥ 5).
+- 우리 쪽도 휩쓰는 전체 제거: × `int.self_hit` 0.5. 처리 시 무효(체인이 안 됨, Cross ④): + `int.chainproof_bonus`.
+- 같은 효과를 여러 번(소재 3개 N104, Detonator 2장, 패의 같은 카드 2장, Plasma Hole 대상 수): k를 이어서 센다.
+- 새 공유값 4개(`int.opp_plays`, `int.opp_battle_plays`, `int.opp_summons`, `int.self_hit`)는 카드 id가 없는 고정값이다. 2단계 기록으로 실제 상대 턴 플레이 수를 잴 수 있다. `int.scope.*`(무효 대상 배수)는 비율로 대체되어 지웠다.
+
+**전후 (방해 가치표, 필드·세트 값)** — `docs/experiments/value_from_lua/out/table.*.md`
+
+| 카드 효과 | 전 (카드별 수치) | 후 (Lua) | 바뀐 이유 |
+|---|---|---|---|
+| N104 ① | 18.1, 끝 필드 ×3 = 54 | 1.7, ×3 = 1.8 | 배틀 페이즈 + 그때 상대 몬스터 속공 효과 비율 0.10 |
+| Rafflesia ⑤ | 65 (55 + 10) | 29.7 | 복사할 함정 중 최고(Plasma Hole 29.7, Gravedigger 24.1) |
+| Ray Lancer ② | 9.5 | 19.7 | 배틀 페이즈 × 상대 몬스터 비율 0.73 |
+| Purulia | 40 | 57.5 | 드로우형 60 × 패 소환 비율 0.53 |
+| Fuwalos | 50 | 54 | 드로우형 60 × 덱·엑스트라 소환 비율 0.38 |
+| Nibiru | 25 | 17.8 | 전체 제거 50 × 소환 5회 확률 0.71 × 0.5 |
+| TY-PHON ① | 17.5 | 9.7 | 봉인 35 × 공격력 3000 이상 비율 0.06 |
+| Gravedigger | 30.4 | 24.1 | 묘지·패·제외 몬스터 효과 비율 0.15 |
+| Crossout | 32 | 38.9 | 효과 무효(이름 선언) × 0.97 |
+| Aggregator ③ | 32 | 39.8 | 앞면 카드 비율 0.88 |
+| Ash | 32 | 36 | 덱 관련 효과 비율 0.38 |
+| Cross ④ | 43 | 44.4 | 효과 무효(처리 시) + 체인 불가 가산 |
+| Exciton·Tornado·Ghost Belle·Skull Meister | 12.5·15·19·20 | 12.4·14.4·19·20 | 거의 같음 |
+
+**턴 계획 (오프라인, 전 → 후)** — `docs/experiments/value_from_lua/results.json`
+- 완성된 끝 필드: N104 + Detonator 124.4 → 71.6, Rafflesia + Detonator 135.2 → 99.5, Detonator 2장 110.4 → 105.7(두 번째 Detonator의 ①은 3·4번째 플레이가 필요해서 조금 낮다).
+- 패에서 시작: Ice 363.5 → 375.9, Ice+Sword 405.6 → 447.0, Ice+Ext+Star 434.5 → 437.1, 패 5장 449.7 → 465.3, Fuwalos 감시 349.7 → 364.9. 끝 필드에서 Rafflesia가 빠지고 Detonator·Aggregator·Plasma Hole이 남는다. 상대 드로우 감점 장수는 같다.
+
+**Lua로 바꾸지 못한 항목 (사용자 확인용)**
+- Rafflesia ⑤ `ia.` +10("제거하기 어렵다"): 효과 값이 아니라 카드의 보호(함정 효과 내성)다. 보호는 제거 쪽(`CardShield`, OpponentLoss)이 다룬다. 보정값은 0에서 시작하고, 2단계 이후 기록으로 움직인다.
+- 나머지 30개는 위 사실로 바뀌었다.
+
+**한계**
+- 비율은 덱 목록의 장수 가중이다. 실제 상대가 한 턴에 그 플레이를 하는 빈도와는 다르다(2단계 기록으로 비교한다).
+- 미러가 아닐 때, 두 덱에 다 있는 카드가 상대 쪽 방해로 평가되는 경우에도 우리 기준 "다른 쪽"(상대 덱)으로 비율을 센다.
+
 ### 1단계 — 값 분해 기록
 
 학습은 "어느 수치가 이 판단에 얼마나 들어갔나"를 알아야 한다. 지금 로그는 추정값과 설명 문자열(`info`)만 남긴다.
@@ -99,7 +156,7 @@
 
 0단계 → 1단계 → 2단계 → 3a를 지금 하는 수동 대전 로그로 시작 → 4단계 → 3b.
 
-바로 다음은 0단계다. 30개 항목을 Lua 특징으로 바꾸는 표를 먼저 만들어 보이고, 바꿀 수 없는 항목을 확인받은 뒤 지운다.
+0단계는 2026-11-13에 끝났다(위 "0단계 결과"). 바로 다음은 1단계(값 분해 기록)다.
 
 ## 4. 열린 문제
 

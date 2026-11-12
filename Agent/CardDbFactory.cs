@@ -153,7 +153,7 @@ namespace WindBot.Agent
                 string oppMons = Config.GetString("AgentDbOppMonsters");
                 if (oppMons != null)
                 {
-                    InterruptModel im = new InterruptModel(model.Weights);
+                    InterruptModel im = new InterruptModel(db, model.Weights);
                     foreach (string s in oppMons.Split(','))
                     {
                         string[] parts = s.Trim().Split(':');
@@ -178,7 +178,7 @@ namespace WindBot.Agent
                 string oppSpells = Config.GetString("AgentDbOppSpells");
                 if (oppSpells != null)
                 {
-                    InterruptModel im = new InterruptModel(model.Weights);
+                    InterruptModel im = new InterruptModel(db, model.Weights);
                     foreach (string s in oppSpells.Split(','))
                     {
                         int id;
@@ -383,7 +383,7 @@ namespace WindBot.Agent
                 db.OnChaining(99, 1, c.Data.Id, e.DescIndex.HasValue ? ((long)c.Data.Id << 20) | (long)e.DescIndex.Value : 0);
                 db.OnChainSolved(99);
                 db.OnChainEnd();
-                InterruptModel im = new InterruptModel(w);
+                InterruptModel im = new InterruptModel(db, w);
                 sb.AppendLine("## 앞면 카드 무효(엔드 페이즈까지) 시 이번 턴 잃는 값 — 위 발동은 이미 사용");
                 sb.AppendLine();
                 sb.AppendLine("| 상대 카드 | 상대 턴 | 우리 턴 | 남은 효과 |");
@@ -411,7 +411,7 @@ namespace WindBot.Agent
         public static string DescribeRemoval(GameCardDb db, ValueWeights w, bool applyUsed)
         {
             StringBuilder sb = new StringBuilder();
-            InterruptModel im = new InterruptModel(w);
+            InterruptModel im = new InterruptModel(db, w);
             OpponentLossModel loss = new OpponentLossModel(db, w);
             ChainRemovalModel model = new ChainRemovalModel(db, w, loss, im);
             TurnPlanner planner = new TurnPlanner(db, w);
@@ -603,7 +603,7 @@ namespace WindBot.Agent
 
         public static string DescribeBait(GameCardDb db, ValueWeights w, OpponentPool pool, string set)
         {
-            InterruptModel im = new InterruptModel(w);
+            InterruptModel im = new InterruptModel(db, w);
             BaitModel bait = new BaitModel(db, w);
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("| 카드 | 효과 | 가치(필드) | 막힐 확률 | 막을 수 있는 상대 카드 |");
@@ -645,16 +645,21 @@ namespace WindBot.Agent
         /// <summary>Interruption value of every effect in the deck that can be used on the opponent's turn.</summary>
         public static string DescribeInterrupts(GameCardDb db, ValueWeights w)
         {
-            InterruptModel im = new InterruptModel(w);
+            InterruptModel im = new InterruptModel(db, w);
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("| 카드 | 효과 | 종류 | 패에서 | 필드·세트 |");
-            sb.AppendLine("|---|---|---|---|---|");
+            sb.AppendLine("| 카드 | 효과 | 종류 | 상대 플레이 중 비율 | 시점 | 1회째 기회 | 2회째 기회 | 패에서 | 필드·세트 |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|");
             foreach (CardEntry c in db.Cards.Values.Where(x => !x.Opponent).OrderBy(x => x.Data.Name, StringComparer.Ordinal))
                 foreach (EffectEntry e in c.Effects)
                 {
                     if (!im.IsInterrupt(c, e) || im.TypeValue(c, e) <= 0) continue;
                     bool hand = (e.Range != null && e.Range.Contains("HAND")) || c.TrapActInHand;
+                    double share = db.PlayShare(c, e);
+                    string when = (e.Window == "battle" ? "배틀 페이즈" : "") + (e.Mass != null ? (e.Window != null ? ", " : "") + (e.Mass == "both" ? "전체(양쪽)" : "전체(상대)") : "")
+                                + (e.Response != null && e.Response.Timing == "summons" ? "소환 " + e.Response.SummonCount + "회 뒤" : "") + (e.Copies ? "복사" : "");
                     sb.AppendLine("| " + c.Data.Name + (w.Excluded.Contains(c.Data.Id) ? " (제외)" : "") + " | " + e.Index + " | " + im.TypeName(c, e)
+                        + " | " + (share < 0 ? "-" : share.ToString("0.00")) + " | " + (when.Length > 0 ? when : "-")
+                        + " | " + im.Chance(c, e, 1).ToString("0.00") + " | " + im.Chance(c, e, 2).ToString("0.00")
                         + " | " + (hand ? im.Value(c, e, true).ToString("0.#") : "-") + " | " + im.Value(c, e, false).ToString("0.#") + " |");
                 }
             return sb.ToString();

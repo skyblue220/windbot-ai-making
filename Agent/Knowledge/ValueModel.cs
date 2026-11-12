@@ -46,9 +46,10 @@ namespace WindBot.Agent.Knowledge
             { "int.control", 45 },       // take control: removes their card and adds a body to our field
             { "int.reactive_factor", 0.67 }, // destroy / banish usable only when the opponent activates: that effect still resolves (30 → 20)
             { "int.expected_targets", 2 },   // opponent face-up cards assumed for "up to N" removal when their field is not yet known
-            { "int.scope.all", 1.0 },        // negation target (read from Lua): monster and spell/trap effects
-            { "int.scope.monster", 0.95 },   // monster effects only: most of what an opponent's turn runs on
-            { "int.scope.spelltrap", 0.75 }, // spell / trap effects only
+            { "int.opp_plays", 6 },         // plays (activations, cards to the field) the opponent makes in a turn: a use comes with P(Poisson(this × share) >= k) (learnable)
+            { "int.opp_battle_plays", 1 },  // the same for an answer usable only in the Battle Phase (Number 104 ①) (learnable)
+            { "int.opp_summons", 6 },       // summons the opponent makes in a turn: a summon count gate (Nibiru: 5) passes with P(Poisson(this) >= count) (learnable)
+            { "int.self_hit", 0.5 },        // a group removal that takes our side too (Exciton Knight, Nibiru): share of its worth left
             { "bait.draw_out", 1.0 },        // bait ordering: worth of drawing out a negation that would also hit a kept interruption
             { "bait.hold", 1.0 },            // bait ordering: scale on "the opponent holds a card that can stop it" (learnable)
             { "int.negate_effect", 40 },
@@ -87,39 +88,6 @@ namespace WindBot.Agent.Knowledge
             { "follow.duplicate", 0.3 }, // each further copy of the same card: its once-per-turn effects are shared
         };
 
-        /// <summary>
-        /// Per card-effect interruption settings, key "&lt;kind&gt;.&lt;cardId&gt;:&lt;effectIndex&gt;":
-        /// ib = base override, is = scope factor, ibt = battle-phase only (1), ia = additive bonus,
-        /// imc = multiply by the number of our monsters matching the effect's condition (1).
-        /// Defaults below are the agreed AI_Ryzeal table (VALUE_MODEL.md 7.4); other cards fall back to
-        /// automatic classification from the Lua categories.
-        /// </summary>
-        public readonly Dictionary<string, double> CardInt = new Dictionary<string, double>(StringComparer.Ordinal)
-        {
-            { "is.14558127:1", 0.8 },                         // Ash Blossom: limited trigger list
-            { "ib.42141493:1", 50 },                          // Mulcharmy Fuwalos: draw, needs empty field
-            { "ib.84192580:1", 50 }, { "is.84192580:1", 0.8 }, // Mulcharmy Purulia
-            { "is.73642296:1", 0.5 },                         // Ghost Belle: GY effects only
-            { "is.67750322:1", 0.5 },                         // Skull Meister: opponent GY only
-            { "ib.27204311:1", 50 }, { "is.27204311:1", 0.5 }, // Nibiru: wipe, 5-summon condition
-            { "is.31548215:1", 0.8 },                         // Gravedigger's Trap Hole
-            { "ib.65681983:1", 40 }, { "is.65681983:1", 0.8 }, // Crossout Designator: negate by name
-            { "imc.33787730:1", 1 },                          // Plasma Hole: up to the number of Ryzeal Xyz
-            { "ib.6798031:4", 40 }, { "is.6798031:4", 1.0 }, { "ia.6798031:4", 5 }, // Ryzeal Cross ③: does not activate (monster-only scope comes from Lua)
-            { "ib.6511113:5", 55 }, { "is.6511113:5", 1.0 }, { "ia.6511113:5", 10 }, // Rafflesia ③: copies a Hole trap (negate); hard to remove
-            { "is.9940036:3", 0.8 },                          // Aggregator ③
-            { "ib.93039339:1", 35 }, { "is.93039339:1", 0.5 }, // TY-PHON ①: lock
-            { "is.6983839:1", 0.5 },                          // Tornado Dragon: S/T only
-            { "ib.2061963:1", 38 }, { "is.2061963:1", 1.0 }, { "ibt.2061963:1", 1 }, // Number 104 (monster-only scope comes from Lua)
-            { "ib.46772449:1", 50 }, { "is.46772449:1", 0.5 }, { "ibt.46772449:1", 1 }, // Exciton Knight
-            { "ib.1269512:2", 40 }, { "is.1269512:2", 0.5 }, { "ibt.1269512:2", 1 },   // FA Ray Lancer ②
-        };
-
-        public bool TryCardInt(string kind, int cardId, int effectIndex, out double v)
-        {
-            return CardInt.TryGetValue(kind + "." + cardId.ToString(CultureInfo.InvariantCulture) + ":" + effectIndex, out v);
-        }
-
         /// <summary>Penalty per hand card spent, for the end-of-turn interruption evaluation (VALUE_MODEL.md 7.5). Provisional; not used until that evaluation exists.</summary>
         public double EfficiencyPerHandCard = 0; // replaced by the follow-up term (cards kept in hand), which counted the same thing twice
 
@@ -128,6 +96,9 @@ namespace WindBot.Agent.Knowledge
 
         /// <summary>Cards left out of every evaluation (e.g. put in the deck by mistake). Key in the file: "exclude.&lt;cardId&gt;": 1.</summary>
         public readonly HashSet<int> Excluded = new HashSet<int>();
+
+        /// <summary>Per-card keys found in the file that nothing reads any more (ib./is./ibt./ia./imc., retired 2026-11-13): listed in the dump.</summary>
+        public readonly List<string> Retired = new List<string>();
 
         /// <summary>Learned offsets, key "cardId:effectIndex". Learning changes only these.</summary>
         public readonly Dictionary<string, double> Offsets = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -175,7 +146,7 @@ namespace WindBot.Agent.Knowledge
                     if (int.TryParse(key.Substring(8), out id)) { if (v != 0) w.Excluded.Add(id); else w.Excluded.Remove(id); }
                 }
                 else if (key.StartsWith("base.")) w.Base[key.Substring(5)] = v;
-                else if (key.StartsWith("ib.") || key.StartsWith("is.") || key.StartsWith("ibt.") || key.StartsWith("ia.") || key.StartsWith("imc.")) w.CardInt[key] = v;
+                else if (key.StartsWith("ib.") || key.StartsWith("is.") || key.StartsWith("ibt.") || key.StartsWith("ia.") || key.StartsWith("imc.")) w.Retired.Add(key); // per-card interruption numbers: retired (VALUE_LEARNING_PLAN.md step 0)
                 else if (key.StartsWith("offset.")) w.Offsets[key.Substring(7)] = v;
             }
             w.Source = path;
@@ -191,7 +162,6 @@ namespace WindBot.Agent.Knowledge
             sb.Append("  \"explore\": ").Append(Explore.ToString(CultureInfo.InvariantCulture));
             foreach (int id in Excluded) sb.Append(",\n  \"exclude.").Append(id.ToString(CultureInfo.InvariantCulture)).Append("\": 1");
             foreach (var kv in Base) sb.Append(",\n  \"base.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
-            foreach (var kv in CardInt) sb.Append(",\n  \"").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             foreach (var kv in Offsets) sb.Append(",\n  \"offset.").Append(kv.Key).Append("\": ").Append(kv.Value.ToString(CultureInfo.InvariantCulture));
             return sb.Append("\n}\n").ToString();
         }
@@ -263,7 +233,7 @@ namespace WindBot.Agent.Knowledge
         {
             _db = db;
             _w = weights;
-            _int = new InterruptModel(weights);
+            _int = new InterruptModel(db, weights);
             _side = side;
         }
 

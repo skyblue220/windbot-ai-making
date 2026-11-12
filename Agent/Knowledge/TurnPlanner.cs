@@ -140,18 +140,22 @@ namespace WindBot.Agent.Knowledge
 
     /// <summary>
     /// Value of an effect as an interruption on the opponent's turn (VALUE_MODEL.md 7장).
-    /// Type comes from the Lua categories (or a per-card override), then scope / battle-only / bonuses.
+    /// Everything comes from Lua and the deck lists, with shared weights only (no per-card numbers; VALUE_LEARNING_PLAN.md step 0):
+    /// the type from the categories / negation / group / lock / copy facts, then the chance a use comes (the share of the other
+    /// side's plays it can work on, the Battle Phase window, the summon count gate), then the shared factors and bonuses.
     /// </summary>
     public sealed class InterruptModel
     {
+        private readonly GameCardDb _db;
         private readonly ValueWeights _w;
-        public InterruptModel(ValueWeights w) { _w = w; }
+        public InterruptModel(GameCardDb db, ValueWeights w) { _db = db; _w = w; }
 
         /// <summary>Can this effect be used on the opponent's turn at all?</summary>
         public bool IsInterrupt(CardEntry c, EffectEntry e)
         {
-            double o;
-            if (_w.TryCardInt("ib", c.Data.Id, e.Index, out o)) return true;
+            if (e.Copies) return CopyTargets(e).Any();
+            if (e.LockAtkAbove > 0) return true; // a standing lock while the card is on the field (TY-PHON ①)
+            if (e.Response != null && e.Response.Timing == "solving" && e.NegateScope != null) return true; // negates as it resolves (Ryzeal Cross ④)
             if (e.Kind.StartsWith("유발 즉시")) return true;
             if (e.Kind.Contains("DESTROY_REPLACE")) return true;
             if (e.Kind.StartsWith("카드의 발동"))
@@ -159,25 +163,28 @@ namespace WindBot.Agent.Knowledge
                 bool trap = (c.Data.Type & 0x4) != 0, quickPlay = (c.Data.Type & 0x10000) != 0;
                 return (trap || quickPlay) && TypeValue(c, e) > 0;
             }
-            // Triggers that can fire on the opponent's turn (e.g. "when sent to the GY").
-            if (e.Kind.StartsWith("유발 효과") && e.Events.Any(ev => ev.Contains("TO_GRAVE") || ev.Contains("DESTROYED") || ev.Contains("LEAVE_FIELD")))
+            // Triggers that can fire on the opponent's turn ("when sent to the GY", the start of their Battle Phase).
+            if (e.Kind.StartsWith("유발 효과") && (e.Window == "battle" || e.Events.Any(ev => ev.Contains("TO_GRAVE") || ev.Contains("DESTROYED") || ev.Contains("LEAVE_FIELD"))))
                 return TypeValue(c, e) > 0;
             return false;
         }
 
         public string TypeName(CardEntry c, EffectEntry e)
         {
-            double o;
-            if (_w.TryCardInt("ib", c.Data.Id, e.Index, out o)) return "설정값";
+            if (e.Copies) return "효과 복사";
             if (e.Kind.Contains("DESTROY_REPLACE")) return "방해 보호";
+            if (e.LockAtkAbove > 0) return "봉인";
             var cat = e.Categories;
             bool neg = cat.Contains("NEGATE"), dis = cat.Contains("DISABLE"), des = cat.Contains("DESTROY");
-            if (cat.Contains("DRAW") && (c.Data.Type & 0x1) != 0) return "드로우형";
+            if ((cat.Contains("DRAW") && (c.Data.Type & 0x1) != 0) || e.DrawWatch != null) return "드로우형";
+            if (e.Mass != null && (des || cat.Contains("RELEASE") || cat.Contains("REMOVE") || cat.Contains("TOHAND") || cat.Contains("TODECK"))) return "전체 제거";
             if (cat.Contains("CONTROL")) return "컨트롤 탈취";
             if (neg && des) return "발동 무효 후 파괴";
             if (dis && des) return "효과 무효 후 파괴";
             if (dis) return "효과 무효";
             if (neg) return "발동 무효";
+            // Negates without a category: NegateEffect while it resolves (Ryzeal Cross ④), a declared name (Crossout Designator).
+            if (e.NegateScope != null || (e.Response != null && e.Response.DeclaredName)) return "효과 무효";
             if (cat.Contains("REMOVE")) return "단순 제외";
             if (cat.Contains("TODECK") && !cat.Contains("SEARCH")) return "덱으로 바운스";
             if (cat.Contains("TOHAND") && !cat.Contains("SEARCH")) return "패로 바운스";
@@ -193,14 +200,15 @@ namespace WindBot.Agent.Knowledge
                 || t == "효과 무효" || t == "발동 무효" || t == "효과 무효 후 파괴" || t == "발동 무효 후 파괴";
         }
 
-        /// <summary>Base value by type (before scope and bonuses).</summary>
+        /// <summary>Base value by type (before the chance of a use and the bonuses).</summary>
         public double TypeValue(CardEntry c, EffectEntry e)
         {
-            double o;
-            if (_w.TryCardInt("ib", c.Data.Id, e.Index, out o)) return o;
             switch (TypeName(c, e))
             {
+                case "효과 복사": return CopyTargets(e).Select(t => TypeValue(t.Key, t.Value)).DefaultIfEmpty(0).Max();
                 case "방해 보호": return _w.BaseOf("int.protect");
+                case "봉인": return _w.BaseOf("int.lock");
+                case "전체 제거": return _w.BaseOf("int.wipe");
                 case "드로우형": return _w.BaseOf("int.draw");
                 case "발동 무효 후 파괴": return _w.BaseOf("int.negate_activation_destroy");
                 case "효과 무효 후 파괴": return _w.BaseOf("int.negate_effect_destroy");
@@ -215,23 +223,73 @@ namespace WindBot.Agent.Knowledge
             }
         }
 
-        /// <summary>One use of the effect as an interruption. inHand adds the hand-trap bonus.</summary>
-        public double Value(CardEntry c, EffectEntry e, bool inHand)
+        /// <summary>The cards a copy effect can become (Rafflesia ⑤: the "Hole" Normal Traps it sends from the Deck) and their activations.</summary>
+        public IEnumerable<KeyValuePair<CardEntry, EffectEntry>> CopyTargets(EffectEntry e)
         {
-            double v = TypeValue(c, e), x;
-            v *= ScopeFactor(e);
-            if (_w.TryCardInt("is", c.Data.Id, e.Index, out x)) v *= x;
-            if (Reactive(c, e)) v *= _w.BaseOf("int.reactive_factor");
-            if (_w.TryCardInt("ibt", c.Data.Id, e.Index, out x) && x != 0) v *= _w.BaseOf("int.battle_factor");
-            if (_w.TryCardInt("ia", c.Data.Id, e.Index, out x)) v += x;
+            foreach (CardLink l in e.Links)
+                foreach (int id in l.Targets)
+                {
+                    CardEntry t = _db.Get(id);
+                    if (t == null || (t.Data.Type & 0x4) == 0) continue;
+                    EffectEntry te = t.Effects.FirstOrDefault(x => x.Kind.StartsWith("카드의 발동") && !x.Copies);
+                    if (te != null) yield return new KeyValuePair<CardEntry, EffectEntry>(t, te);
+                }
+        }
+
+        /// <summary>One use of the effect as an interruption. inHand adds the hand-trap bonus.</summary>
+        public double Value(CardEntry c, EffectEntry e, bool inHand) { return UseValue(c, e, inHand, 1); }
+
+        /// <summary>The first <paramref name="uses"/> uses together (materials to detach, copies in hand, targets "up to N").</summary>
+        public double Uses(CardEntry c, EffectEntry e, bool inHand, int uses)
+        {
+            double v = 0;
+            for (int k = 1; k <= uses; ++k) v += UseValue(c, e, inHand, k);
+            return v;
+        }
+
+        /// <summary>The k-th use this turn: type value × the chance a k-th use comes, then the shared factors and bonuses.</summary>
+        public double UseValue(CardEntry c, EffectEntry e, bool inHand, int k)
+        {
+            double v;
+            if (e.Copies)
+                v = CopyTargets(e).Select(t => UseValue(t.Key, t.Value, false, k)).DefaultIfEmpty(0).Max();
+            else
+            {
+                v = TypeValue(c, e) * Chance(c, e, k);
+                if (Reactive(c, e)) v *= _w.BaseOf("int.reactive_factor");
+                if (e.Mass == "both") v *= _w.BaseOf("int.self_hit");
+                if (e.LockAtkAbove > 0 && e.LockBoth) v *= 1 - Math.Max(0, _db.PlayShare(c, e, true)); // our own monsters at that ATK are locked too
+                if (e.Response != null && e.Response.Timing == "solving") v += _w.BaseOf("int.chainproof_bonus"); // no chain link to answer
+            }
             if (inHand) v += _w.BaseOf("int.handtrap_bonus");
             return v;
         }
 
-        /// <summary>What a negation can hit (from Lua): all ×int.scope.all, monster effects ×int.scope.monster, spell/trap effects ×int.scope.spelltrap. 1 for non-negations.</summary>
-        public double ScopeFactor(EffectEntry e)
+        /// <summary>
+        /// Chance the k-th use comes this turn. Plays it can work on ~ Poisson(plays × share): P(at least k).
+        /// plays = int.opp_plays, or int.opp_battle_plays for an answer that waits for the Battle Phase; a Battle Phase window also
+        /// × int.battle_factor (the phase may not come); a summon count gate (Nibiru) × P(their summons ≥ that count).
+        /// </summary>
+        public double Chance(CardEntry c, EffectEntry e, int k)
         {
-            return e.NegateScope == null ? 1 : _w.BaseOf("int.scope." + e.NegateScope);
+            bool battle = e.Window == "battle";
+            double gate = battle ? _w.BaseOf("int.battle_factor") : 1;
+            ResponseFilter f = e.Response;
+            if (f != null && f.Timing == "summons") gate *= PoissonAtLeast(_w.BaseOf("int.opp_summons"), f.SummonCount);
+            double share = _db.PlayShare(c, e);
+            if (share < 0) return gate; // does not depend on what they play (a destroy replacement)
+            bool answers = e.Mass == null && (e.LockAtkAbove > 0 || (f != null && f.Timing != "summons"));
+            double plays = answers && battle ? _w.BaseOf("int.opp_battle_plays") : _w.BaseOf("int.opp_plays");
+            return gate * PoissonAtLeast(plays * share, k);
+        }
+
+        public static double PoissonAtLeast(double lambda, int k)
+        {
+            if (k <= 0) return 1;
+            if (lambda <= 0) return 0;
+            double term = Math.Exp(-lambda), below = 0;
+            for (int i = 0; i < k; ++i) { below += term; term *= lambda / (i + 1); }
+            return Math.Max(0, 1 - below);
         }
 
         /// <summary>
@@ -240,18 +298,13 @@ namespace WindBot.Agent.Knowledge
         /// </summary>
         public bool Reactive(CardEntry c, EffectEntry e)
         {
-            double o;
-            if (_w.TryCardInt("ib", c.Data.Id, e.Index, out o)) return false;
             string t = TypeName(c, e);
             bool removal = t == "단순 파괴" || t == "단순 제외" || t == "패로 바운스" || t == "덱으로 바운스" || t == "컨트롤 탈취";
             return removal && e.Events.Any(ev => ev.Contains("CHAINING"));
         }
 
-        public bool MultipliesByCondition(CardEntry c, EffectEntry e)
-        {
-            double x;
-            return _w.TryCardInt("imc", c.Data.Id, e.Index, out x) && x != 0;
-        }
+        /// <summary>Picks up to as many targets as our cards matching its condition (Plasma Hole), read from Lua.</summary>
+        public bool MultipliesByCondition(CardEntry c, EffectEntry e) { return e.UpToConditionCount; }
     }
 
     // ------------------------------------------------------------------ planner
@@ -359,7 +412,7 @@ namespace WindBot.Agent.Knowledge
         {
             _db = db;
             _w = w;
-            _int = new InterruptModel(w);
+            _int = new InterruptModel(db, w);
             _payoff = new GravePayoffReader(db, w, HitsFieldCards);
         }
 
@@ -1915,15 +1968,16 @@ namespace WindBot.Agent.Knowledge
                     if (act == null || DeckBlocked(act, s)) continue;
                     bool fromHand = trap && c.TrapActInHand && (!c.TrapActInHandNeedsEmptyField || fieldEmpty);
                     int copies = act.Limit != null ? Math.Min(kv.Value, act.Limit.Count) : kv.Value;
+                    int used = 0; // a further copy needs a further play to answer (InterruptModel.UseValue)
                     for (int i = 0; i < copies; ++i)
                     {
-                        if (fromHand) { total += _int.Value(c, act, true); board.Add(Name(c) + "(패)"); }
+                        if (fromHand) { total += _int.UseValue(c, act, true, ++used); board.Add(Name(c) + "(패)"); }
                         else if (spellZones < 5)
                         {
                             spellZones++;
                             int mult = _int.MultipliesByCondition(c, act) ? ConditionCount(act, s) : 1;
                             if (mult <= 0 || !FieldConditions(act, s)) { board.Add(Name(c) + "(세트, 지금은 조건 불충족)"); continue; }
-                            total += _int.Value(c, act, false) * mult;
+                            for (int j = 0; j < mult; ++j) total += _int.UseValue(c, act, false, ++used);
                             board.Add(Name(c) + "(세트" + (mult > 1 ? " ×" + mult : "") + ")");
                         }
                     }
@@ -1936,7 +1990,7 @@ namespace WindBot.Agent.Knowledge
                     if (e.Range == null || !e.Range.Contains("HAND")) continue;
                     if (e.RequiresEmptyField && !fieldEmpty) continue;
                     if (!keys.Add(e.UsageKey + "#hand")) continue;
-                    for (int i = 0; i < uses; ++i) { total += _int.Value(c, e, true); board.Add(Name(c) + "(패)"); }
+                    for (int i = 0; i < uses; ++i) { total += _int.UseValue(c, e, true, i + 1); board.Add(Name(c) + "(패)"); }
                 }
             }
 
@@ -1950,16 +2004,17 @@ namespace WindBot.Agent.Knowledge
                     bool usableHere = e.Kind.StartsWith("카드의 발동") || (e.Range != null && (e.Range.Contains("SZONE") || e.Range.Contains("FZONE")));
                     if (!usableHere || !_int.IsInterrupt(c, e) || _int.TypeValue(c, e) <= 0 || DeckBlocked(e, s) || !keys.Add(e.UsageKey + "#zone")) continue;
                     if (!FieldConditions(e, s)) continue;
-                    double v = _int.Value(c, e, false);
                     int mult = _int.MultipliesByCondition(c, e) ? ConditionCount(e, s) : 1;
                     if (mult <= 0) continue;
-                    total += v * mult;
+                    total += _int.Uses(c, e, false, mult);
                     board.Add(Name(c) + (mult > 1 ? " ×" + mult : ""));
                 }
             }
 
             // Monsters. Effects limited per card name (e.g. Detonator ③ "1턴 1번") are shared by all copies on the field.
             Dictionary<string, int> left = new Dictionary<string, int>(StringComparer.Ordinal);
+            // Uses of the same effect on several monsters (two Detonators): the k-th needs a k-th play to answer.
+            Dictionary<EffectEntry, int> usedK = new Dictionary<EffectEntry, int>();
             foreach (Mon m in s.Mons)
             {
                 CardEntry c = _db.Get(m.Id);
@@ -1981,8 +2036,13 @@ namespace WindBot.Agent.Knowledge
                         left[e.UsageKey] = remaining - uses;
                     }
                     if (uses <= 0 || !FieldConditions(e, s)) continue;
-                    total += _int.Value(c, e, false) * uses;
-                    board.Add(Name(c) + "(" + e.Index + ")" + (uses > 1 ? " ×" + uses : ""));
+                    int before;
+                    usedK.TryGetValue(e, out before);
+                    double got = 0;
+                    for (int k = before + 1; k <= before + uses; ++k) got += _int.UseValue(c, e, false, k);
+                    usedK[e] = before + uses;
+                    total += got;
+                    board.Add(Name(c) + "(" + e.Index + ")" + (uses > 1 ? " ×" + uses : "") + " " + got.ToString("0.#", CultureInfo.InvariantCulture));
                 }
             }
 

@@ -1,0 +1,170 @@
+{
+ "table": {
+  "new": {
+   "rows": [
+    "| Ash Blossom & Joyous Spring | 1 | 효과 무효 | 0.38 | - | 0.90 | 0.67 | 51 | 36 |",
+    "| Crossout Designator | 1 | 효과 무효 | 0.60 | - | 0.97 | 0.87 | - | 38.9 |",
+    "| Evilswarm Exciton Knight | 1 | 전체 제거 | 0.84 | 배틀 페이즈, 전체(양쪽) | 0.50 | 0.48 | - | 12.4 |",
+    "| Full Armored Utopic Ray Lancer | 2 | 효과 무효 | 0.73 | 배틀 페이즈, 전체(상대) | 0.49 | 0.47 | - | 19.7 |",
+    "| Ghost Belle & Haunted Mansion | 1 | 발동 무효 | 0.12 | - | 0.50 | 0.15 | 34 | 19 |",
+    "| Ghost Ogre & Snow Rabbit | 1 | 단순 파괴 | 0.62 | - | 0.98 | 0.88 | 34.6 | 19.6 |",
+    "| Gravedigger's Trap Hole | 1 | 효과 무효 | 0.15 | - | 0.60 | 0.24 | - | 24.1 |",
+    "| Infinite Impermanence | 1 | 효과 무효 | 0.60 | - | 0.97 | 0.87 | 53.9 | 38.9 |",
+    "| Maxx \"C\" | 1 | 드로우형 | 0.70 | - | 0.99 | 0.92 | 74.1 | 59.1 |",
+    "| Mereologic Aggregator | 3 | 효과 무효 | 0.88 | - | 1.00 | 0.97 | - | 39.8 |",
+    "| Mulcharmy Fuwalos | 1 | 드로우형 | 0.38 | - | 0.90 | 0.67 | 69 | 54 |",
+    "| Mulcharmy Purulia | 1 | 드로우형 | 0.53 | - | 0.96 | 0.83 | 72.5 | 57.5 |",
+    "| Nibiru, the Primal Being | 1 | 전체 제거 | 0.84 | 전체(양쪽)소환 5회 뒤 | 0.71 | 0.69 | 32.8 | 17.8 |",
+    "| Number 104: Masquerade | 1 | 발동 무효 | 0.10 | 배틀 페이즈 | 0.05 | 0.00 | - | 1.7 |",
+    "| Number F0: Utopic Future Zexal | 5 | 컨트롤 탈취 | 1.00 | - | 1.00 | 0.98 | - | 30.1 |",
+    "| Ryzeal Cross | 4 | 효과 무효 | 0.69 | - | 0.98 | 0.92 | - | 44.4 |",
+    "| Ryzeal Detonator | 1 | 단순 파괴 | 1.00 | - | 1.00 | 0.98 | - | 20.1 |",
+    "| Ryzeal Detonator | 3 | 방해 보호 | - | - | 1.00 | 1.00 | - | 30 |",
+    "| Ryzeal Plasma Hole | 1 | 단순 파괴 | 0.75 | - | 0.99 | 0.94 | - | 29.7 |",
+    "| Skull Meister | 1 | 효과 무효 | 0.12 | - | 0.50 | 0.15 | 35 | 20 |",
+    "| Super Starslayer TY-PHON - Sky Crisis | 1 | 봉인 | 0.06 | - | 0.29 | 0.05 | - | 9.7 |",
+    "| Tornado Dragon | 1 | 단순 파괴 | 0.11 | - | 0.48 | 0.14 | - | 14.4 |",
+    "| Traptrix Rafflesia | 5 | 효과 복사 | - | 복사 | 1.00 | 1.00 | - | 29.7 |"
+   ]
+  },
+  "old": {
+   "rows": [
+    "| Ash Blossom & Joyous Spring | 1 | 효과 무효 | 47 | 32 |",
+    "| Crossout Designator | 1 | 설정값 | - | 32 |",
+    "| Evilswarm Exciton Knight | 1 | 설정값 | - | 12.5 |",
+    "| Full Armored Utopic Ray Lancer | 2 | 설정값 | - | 9.5 |",
+    "| Ghost Belle & Haunted Mansion | 1 | 발동 무효 | 34 | 19 |",
+    "| Ghost Ogre & Snow Rabbit | 1 | 단순 파괴 | 35.1 | 20.1 |",
+    "| Gravedigger's Trap Hole | 1 | 효과 무효 | - | 30.4 |",
+    "| Infinite Impermanence | 1 | 효과 무효 | 53 | 38 |",
+    "| Maxx \"C\" | 1 | 드로우형 | 75 | 60 |",
+    "| Mereologic Aggregator | 3 | 효과 무효 | - | 32 |",
+    "| Mulcharmy Fuwalos | 1 | 설정값 | 65 | 50 |",
+    "| Mulcharmy Purulia | 1 | 설정값 | 55 | 40 |",
+    "| Nibiru, the Primal Being | 1 | 설정값 | 40 | 25 |",
+    "| Number 104: Masquerade | 1 | 설정값 | - | 18.1 |",
+    "| Number F0: Utopic Future Zexal | 5 | 컨트롤 탈취 | - | 30.2 |",
+    "| Ryzeal Cross | 4 | 설정값 | - | 43 |",
+    "| Ryzeal Detonator | 1 | 단순 파괴 | - | 20.1 |",
+    "| Ryzeal Detonator | 3 | 방해 보호 | - | 30 |",
+    "| Ryzeal Plasma Hole | 1 | 단순 파괴 | - | 30 |",
+    "| Skull Meister | 1 | 효과 무효 | 35 | 20 |",
+    "| Super Starslayer TY-PHON - Sky Crisis | 1 | 설정값 | - | 17.5 |",
+    "| Tornado Dragon | 1 | 단순 파괴 | - | 15 |",
+    "| Traptrix Rafflesia | 5 | 설정값 | - | 65 |"
+   ]
+  }
+ },
+ "ice": {
+  "new": {
+   "plan": 375.9,
+   "terms": "흐름 155.6 + 턴 종료 방해 159.7 + 후속 60.6 − 효율 1장",
+   "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Infernal Flame Banshee 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Ext Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Detonator 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Ext Ryzeal, Ice Ryzeal] +드로우",
+   "board": "Ryzeal Cross, Ryzeal Detonator(1) ×3 58.7, Ryzeal Detonator(3) 30, Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)"
+  },
+  "old": {
+   "plan": 363.5,
+   "terms": "흐름 155.2 + 턴 종료 방해 154.7 + 후속 53.6 − 효율 1장",
+   "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Infernal Flame Banshee 엑시즈 소환 [소재: Ext Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Ext Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Duo Drive 유발(2) +소재: Ext Ryzeal → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sword Ryzeal] → Ryzeal Plugin → Ryzeal Cross 세트 카드 발동 → Node Ryzeal 기동(2) [코스트: Ryzeal Plugin] → Ice Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Node Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Cross 기동(3) [덱으로: Ryzeal Plugin, Star Ryzeal] +드로우",
+   "board": "Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)"
+  }
+ },
+ "ice_sword": {
+  "new": {
+   "plan": 447.0,
+   "terms": "흐름 156.8 + 턴 종료 방해 217.5 + 후속 72.7 − 효율 2장",
+   "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Sword Ryzeal, Ext Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Duo Drive 엑시즈 소환 [소재: Ice Ryzeal, Star Ryzeal] → Ryzeal Duo Drive 기동(3) [떼기: Ice Ryzeal, Star Ryzeal] → Ryzeal Cross → Ryzeal Cross 필드 마법 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Ice Ryzeal] +드로우",
+   "board": "Ryzeal Plasma Hole ×2, Ryzeal Cross, Ryzeal Detonator(1) ×3 58.7, Ryzeal Detonator(3) 30, Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)"
+  },
+  "old": {
+   "plan": 405.6,
+   "terms": "흐름 148.8 + 턴 종료 방해 256.8 + 후속 0 − 효율 2장",
+   "moves": "Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Star Ryzeal → Star Ryzeal 유발(2) → Ryzeal Plasma Hole → Sword Ryzeal 룰 특수 소환 → Sword Ryzeal 유발(2) → Ext Ryzeal → Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ryzeal Detonator 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Ext Ryzeal] → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Ext Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Ext Ryzeal → Ext Ryzeal 유발(2) → Node Ryzeal → Node Ryzeal 룰 특수 소환 → Traptrix Rafflesia 엑시즈 소환 [소재: Ext Ryzeal, Node Ryzeal]",
+   "board": "Ryzeal Plasma Hole ×2, Ryzeal Detonator(1) ×4, Ryzeal Detonator(3), Traptrix Rafflesia(5), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)"
+  }
+ },
+ "ice_ext_star": {
+  "new": {
+   "plan": 437.1,
+   "terms": "흐름 167.4 + 턴 종료 방해 191.1 + 후속 78.5 − 효율 3장",
+   "moves": "Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Star Ryzeal 룰 특수 소환 [떼기: Ext Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Sword Ryzeal, Star Ryzeal] → Ryzeal Duo Drive 기동(3) [떼기: Sword Ryzeal, Star Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Sword Ryzeal → Ryzeal Detonator 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Star Ryzeal, Ext Ryzeal] +드로우",
+   "board": "Ryzeal Cross, Ryzeal Detonator(1) ×2 39.8, Ryzeal Detonator(3) 30, Ryzeal Detonator(1) ×3 50.3, Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)"
+  },
+  "old": {
+   "plan": 434.5,
+   "terms": "흐름 140.5 + 턴 종료 방해 219.7 + 후속 74.2 − 효율 3장",
+   "moves": "Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Ext Ryzeal → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Ext Ryzeal] → Ryzeal Detonator 유발(2) +소재: Mereologic Aggregator → Ryzeal Duo Drive 엑시즈 소환 [소재: Ice Ryzeal, Sword Ryzeal] → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 기동(3) [떼기: Sword Ryzeal, Ext Ryzeal] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Traptrix Rafflesia 엑시즈 소환 [소재: Star Ryzeal, Sword Ryzeal] → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Ext Ryzeal, Ice Ryzeal] +드로우",
+   "board": "Ryzeal Cross, Ryzeal Detonator(1) ×3, Ryzeal Detonator(3), Traptrix Rafflesia(5), Mereologic Aggregator(Ryzeal Detonator 소재, 상대 턴 묘지 효과)"
+  }
+ },
+ "handtraps": {
+  "new": {
+   "plan": 465.3,
+   "terms": "흐름 167.1 + 턴 종료 방해 172.8 + 후속 125.4 − 효율 5장",
+   "moves": "Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sakitama 기동(2) → Sakitama 추가 일반 소환 → Lightning Crash 발동(1) → Sword Ryzeal → Triple Tactics Talent 발동(1) → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Sword Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sakitama] → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sakitama] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Mereologic Aggregator → Mereologic Aggregator 유발(1) → Ryzeal Cross 세트 카드 발동 → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우",
+   "board": "Ryzeal Cross, Ryzeal Detonator(1) ×3 58.7, Ryzeal Detonator(3) 30, Mereologic Aggregator(3) 39.8"
+  },
+  "old": {
+   "plan": 449.7,
+   "terms": "흐름 158.4 + 턴 종료 방해 173.2 + 후속 118.1 − 효율 5장",
+   "moves": "Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sakitama 기동(2) → Sakitama 추가 일반 소환 → Lightning Crash 발동(1) → Sword Ryzeal → Triple Tactics Talent 발동(1) → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Sword Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sakitama] → Ryzeal Cross 세트 카드 발동 → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sakitama] → Ryzeal Plasma Hole → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우",
+   "board": "Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)"
+  }
+ },
+ "fuwalos": {
+  "new": {
+   "plan": 364.9,
+   "terms": "흐름 166.7 + 턴 종료 방해 172.8 + 후속 125.4 − 효율 5장 − 상대 드로우 4장 100",
+   "moves": "Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sakitama 기동(2) → Sakitama 추가 일반 소환 → Lightning Crash 발동(1) → Sword Ryzeal → Triple Tactics Talent 발동(1) → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Sword Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sakitama] → Ryzeal Cross 세트 카드 발동 → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sakitama] → Ryzeal Plugin → Ryzeal Plugin 발동(1) +덱→소재: Ice Ryzeal → Mereologic Aggregator → Mereologic Aggregator 유발(1) → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우",
+   "board": "Ryzeal Cross, Ryzeal Detonator(1) ×3 58.7, Ryzeal Detonator(3) 30, Mereologic Aggregator(3) 39.8"
+  },
+  "old": {
+   "plan": 349.7,
+   "terms": "흐름 158.4 + 턴 종료 방해 173.2 + 후속 118.1 − 효율 5장 − 상대 드로우 4장 100",
+   "moves": "Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sakitama 기동(2) → Sakitama 추가 일반 소환 → Lightning Crash 발동(1) → Sword Ryzeal → Triple Tactics Talent 발동(1) → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Sword Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sakitama] → Ryzeal Cross 세트 카드 발동 → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sakitama] → Ryzeal Plasma Hole → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우",
+   "board": "Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)"
+  }
+ },
+ "end_m104": {
+  "new": {
+   "plan": 71.6,
+   "terms": "흐름 0 + 턴 종료 방해 71.6 + 후속 0 − 효율 0장",
+   "moves": "",
+   "board": "Number 104: Masquerade(1) ×3 1.8, Ryzeal Detonator(1) ×2 39.8, Ryzeal Detonator(3) 30"
+  },
+  "old": {
+   "plan": 124.4,
+   "terms": "흐름 0 + 턴 종료 방해 124.4 + 후속 0 − 효율 0장",
+   "moves": "",
+   "board": "Number 104: Masquerade(1) ×3, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)"
+  }
+ },
+ "end_raf": {
+  "new": {
+   "plan": 99.5,
+   "terms": "흐름 0 + 턴 종료 방해 99.5 + 후속 0 − 효율 0장",
+   "moves": "",
+   "board": "Traptrix Rafflesia(5) 29.7, Ryzeal Detonator(1) ×2 39.8, Ryzeal Detonator(3) 30"
+  },
+  "old": {
+   "plan": 135.2,
+   "terms": "흐름 0 + 턴 종료 방해 135.2 + 후속 0 − 효율 0장",
+   "moves": "",
+   "board": "Traptrix Rafflesia(5), Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)"
+  }
+ },
+ "end_two_det": {
+  "new": {
+   "plan": 105.7,
+   "terms": "흐름 0 + 턴 종료 방해 105.7 + 후속 0 − 효율 0장",
+   "moves": "",
+   "board": "Ryzeal Detonator(1) ×2 39.8, Ryzeal Detonator(3) 30, Ryzeal Detonator(1) ×2 35.9"
+  },
+  "old": {
+   "plan": 110.4,
+   "terms": "흐름 0 + 턴 종료 방해 110.4 + 후속 0 − 효율 0장",
+   "moves": "",
+   "board": "Ryzeal Detonator(1) ×2, Ryzeal Detonator(3), Ryzeal Detonator(1) ×2"
+  }
+ }
+}
