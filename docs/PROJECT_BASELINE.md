@@ -1,7 +1,7 @@
 # Ryzeal AI 프로젝트 — 기준 정리
 
 - 작성 시점: 2026-11-06 (4차: 기존 Executor와 분리된 새 봇 구조로 전환)
-- 관련 문서: `PROJECT_STATUS.md` (현황과 근거), `TODO.md` (작업 목록), `WINDBOT_DATA_FLOW.md` (EDOPro ↔ 봇 데이터 흐름)
+- 관련 문서: `PROJECT_STATUS.md` (현황판, 2026-11-13 새로 씀), `TODO.md` (작업 목록), `WINDBOT_DATA_FLOW.md` (EDOPro ↔ 봇 데이터 흐름)
 - 상위 방향 문서: `게임 봇 프로젝트\YuGiOh_AI_개발_방향_정리.md`
 - 표기: **(확인)** 소스·로그로 확인 / **(미확인)** 근거는 있으나 확정 못 함 / **(개념)** 목표 구조이며 구현·확정되지 않음
 

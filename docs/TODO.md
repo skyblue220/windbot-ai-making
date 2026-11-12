@@ -1,7 +1,7 @@
 # Ryzeal AI — TODO
 
 - 작성 시점: 2026-11-06 (새 봇 구조 기준으로 재작성. 이전 버전: `TODO_2026-10-14.md`)
-- 방향과 근거: `PROJECT_BASELINE.md`(기준 정리), `WINDBOT_DATA_FLOW.md`(EDOPro ↔ 봇 데이터 흐름), `PROJECT_STATUS.md`
+- 방향과 근거: `PROJECT_BASELINE.md`(기준 정리), `WINDBOT_DATA_FLOW.md`(EDOPro ↔ 봇 데이터 흐름), `PROJECT_STATUS.md`(현황판: 지금 상태와 문서 지도, 2026-11-13 새로 씀)
 - 표기: `[ ]` 미착수 / `[~]` 진행 중 또는 부분 완료 / `[x]` 완료
 - 태그: **(확인)** 소스·로그로 확인한 사실 / **(미확인)** 근거는 있으나 확정 못 함 / **(제안)** 아직 결정되지 않은 안
 
@@ -56,8 +56,8 @@
 - [x] **새 봇 기록(로그) 형식.** `logs\agent\agent_<시각>_<duelId>.jsonl`. 첫 줄 `header`(빌드 식별자 = 어셈블리 MVID, 정책, 시드, 덱), 이후 `decision`(요청, 선택지, 보이는 상태, 선택), `message`(게임 메시지), `result`, `error`.
 - [x] ProjectIgnis 배포와 등록: 빌드 배포, `bots.json`에 "Ryzeal (New Agent)" 추가. 배포 전 파일은 `ProjectIgnis\Windbot_backup_pre_agent_20261106\`.
 - [x] 시작 확인: 새 봇과 기존 봇 모두 프로세스가 시작되고 덱을 불러온다 (서버 없이 실행해 접속 대기까지만 확인).
-- [ ] **EDOPro에서 새 봇으로 듀얼 1판을 끝까지 진행** (오류 없이 종료, 로그에 `Retry` 메시지 0회면 P0 완료). 기존 봇("Ryzeal")도 여전히 정상인지 함께 확인한다.
-- [ ] 저장소 정리: `.gitignore`(`bin/`, `obj/`, `out/`, `*.dll`, `*.pdb`, `logs/*.jsonl`), `windbot-ai-making` 폴더 아카이브, `PROJECT_STATUS.md` 2.3절 정정(카드 혼입 원인은 봇이 읽는 ydk가 갱신되지 않은 것).
+- [x] **EDOPro에서 새 봇으로 듀얼 1판을 끝까지 진행** (오류 없이 종료, 로그에 `Retry` 메시지 0회면 P0 완료). 2026-11-13 실전 4판 모두 `Retry` 0회, 2판은 결과(승/패)까지 기록됨 (확인). 기존 봇("Ryzeal")은 확인하지 않았다.
+- [ ] 저장소 정리: `.gitignore`(`bin/`, `obj/`, `out/`, `*.dll`, `*.pdb`, `logs/*.jsonl`), `windbot-ai-making` 폴더 아카이브, `PROJECT_STATUS_2026-10-14.md`(이전판) 2.3절 정정(카드 혼입 원인은 봇이 읽는 ydk가 갱신되지 않은 것).
 
 ---
 
