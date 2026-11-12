@@ -111,6 +111,10 @@ namespace WindBot.Agent.Core
         public int DeckCount;
         public readonly List<int> Hand = new List<int>();
         public readonly List<int> Monsters = new List<int>();
+        /// <summary>Xyz materials of each monster (ids, 0 = not known), index-aligned with Monsters.</summary>
+        public readonly List<List<int>> Materials = new List<List<int>>();
+        /// <summary>Face-down monsters / spells and traps (their ids are 0 on the opponent's side).</summary>
+        public int SetMonsters, SetSpells;
         public readonly List<int> Spells = new List<int>();
         public readonly List<int> Graveyard = new List<int>();
         public readonly List<int> Banished = new List<int>();

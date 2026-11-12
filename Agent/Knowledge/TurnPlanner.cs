@@ -36,6 +36,80 @@ namespace WindBot.Agent.Knowledge
         public readonly List<DrawWatch> OpponentDrawWatch = new List<DrawWatch>();
         /// <summary>Cards in the opponent's hand (-1 not known): what a Mulcharmy End Phase shuffle leaves them.</summary>
         public int OpponentHand = -1;
+
+        // ---- the rest of the duel state (DECISION_STATE.md): every decision reads the same full picture
+
+        /// <summary>Our Extra Deck as the duel shows it (null: not known, derived from the deck list).</summary>
+        public List<int> Extra;
+        /// <summary>Cards left in our Deck (-1 not known).</summary>
+        public int DeckCount = -1;
+        /// <summary>The opponent's spells / traps on the field (field zone included): face-up ones by id, face-down ones with id 0.</summary>
+        public readonly List<OpponentCard> OpponentSpells = new List<OpponentCard>();
+        public readonly List<int> OpponentGrave = new List<int>();
+        public readonly List<int> OpponentBanished = new List<int>();
+        /// <summary>Opponent's hand cards we have seen revealed (the rest of OpponentHand is hidden).</summary>
+        public readonly List<int> OpponentHandKnown = new List<int>();
+        /// <summary>Hidden counts on the opponent's side (-1 not known).</summary>
+        public int OpponentDeck = -1, OpponentExtra = -1;
+        /// <summary>Built from the live duel with every zone of both sides (false: an offline test that set only some of it).</summary>
+        public bool Full;
+
+        /// <summary>Every own card we can see out of the Deck: hand, field, attached materials, GY, banished.</summary>
+        public List<int> Seen()
+        {
+            List<int> seen = new List<int>(Hand);
+            seen.AddRange(Monsters.Select(m => m.Key));
+            seen.AddRange(Spells);
+            seen.AddRange(SetSpells);
+            seen.AddRange(Grave);
+            seen.AddRange(Banished);
+            foreach (List<int> mats in MonsterMaterials) if (mats != null) seen.AddRange(mats); // attached materials are out of the Deck too
+            return seen;
+        }
+
+        /// <summary>Copies of each main-deck card still in the Deck: deck list − every copy we can see.</summary>
+        public Dictionary<int, int> DeckLeft(List<int> mainDeck)
+        {
+            List<int> seen = Seen();
+            return mainDeck.Distinct().ToDictionary(id => id, id => Math.Max(0, mainDeck.Count(x => x == id) - seen.Count(x => x == id)));
+        }
+
+        /// <summary>Copies of each Extra Deck card still there: as the duel shows it, else deck list − every copy we can see.</summary>
+        public Dictionary<int, int> ExtraLeft(List<int> extraDeck)
+        {
+            if (Extra != null) return extraDeck.Distinct().ToDictionary(id => id, id => Extra.Count(x => x == id));
+            List<int> seen = Seen();
+            return extraDeck.Distinct().ToDictionary(id => id, id => Math.Max(0, extraDeck.Count(x => x == id) - seen.Count(x => x == id)));
+        }
+
+        /// <summary>Copies of a card attached as Xyz material to our monsters.</summary>
+        public int Attached(int id) { return MonsterMaterials.Sum(l => l == null ? 0 : l.Count(x => x == id)); }
+        public int OpponentSetMonsters { get { return OpponentMonsters.Count(m => !m.FaceUp); } }
+        public int OpponentSetSpells { get { return OpponentSpells.Count(c => !c.FaceUp); } }
+        /// <summary>Opponent's cards we cannot see: hand not revealed + face-down field cards + Deck (-1 not known).</summary>
+        public int OpponentHidden
+        {
+            get
+            {
+                if (OpponentHand < 0 || OpponentDeck < 0) return -1;
+                return OpponentHand - OpponentHandKnown.Count + OpponentSetMonsters + OpponentSetSpells + OpponentDeck;
+            }
+        }
+        /// <summary>The opponent's face-up field cards that still hold interruptions against us (monsters and spells / traps).</summary>
+        public IEnumerable<double> OpponentHeld()
+        {
+            foreach (OpponentMonster m in OpponentMonsters) if (m.FaceUp) yield return m.Held;
+            foreach (OpponentCard c in OpponentSpells) if (c.FaceUp) yield return c.Held;
+        }
+    }
+
+    /// <summary>An opponent's spell / trap on the field.</summary>
+    public sealed class OpponentCard
+    {
+        public int Id;
+        public bool FaceUp;
+        /// <summary>Interruptions it still offers from the field (a face-up continuous trap, a field spell).</summary>
+        public double Held;
     }
 
     /// <summary>An opponent's monster as the planner's battle term sees it.</summary>
@@ -51,8 +125,15 @@ namespace WindBot.Agent.Knowledge
         public bool Indestructible;
         /// <summary>A destroy replacement protects it once, at this cost to its controller (Detonator: a material).</summary>
         public double ReplaceCost = -1;
+        /// <summary>Its Xyz materials (ids; 0 = not known).</summary>
+        public List<int> Materials = new List<int>();
 
-        public OpponentMonster Clone() { return (OpponentMonster)MemberwiseClone(); }
+        public OpponentMonster Clone()
+        {
+            OpponentMonster m = (OpponentMonster)MemberwiseClone();
+            m.Materials = new List<int>(Materials);
+            return m;
+        }
     }
 
     // ------------------------------------------------------------------ interruptions
@@ -434,6 +515,8 @@ namespace WindBot.Agent.Knowledge
         private bool _canAttack;
         private int _ownLp = 8000, _oppLp = 8000, _oppGraveRanks;
         private List<OpponentMonster> _oppMons = new List<OpponentMonster>();
+        /// <summary>What the opponent's face-up field cards still hold against us (monsters and spells / traps).</summary>
+        private List<double> _oppHeld = new List<double>();
         /// <summary>The opponent's draw watches this turn (Maxx "C", Mulcharmy) and their hand size (Mulcharmy's End Phase cap).</summary>
         private List<DrawWatch> _drawWatch = new List<DrawWatch>();
         private int _oppHand = -1;
@@ -447,6 +530,7 @@ namespace WindBot.Agent.Knowledge
             _oppLp = z.OpponentLp;
             _oppGraveRanks = z.OpponentGraveXyzRanks;
             _oppMons = z.OpponentMonsters.Select(x => x.Clone()).ToList();
+            _oppHeld = z.OpponentHeld().ToList();
             _drawWatch = z.OpponentDrawWatch.ToList();
             _oppHand = z.OpponentHand;
             St s = new St { NS = z.NormalSummonAvailable, OppDraws = new int[_drawWatch.Count] };
@@ -464,15 +548,8 @@ namespace WindBot.Agent.Knowledge
             s.Spells.AddRange(z.Spells);
             s.Inactive.AddRange(z.SetSpells);
             foreach (int id in z.Grave) s.Add(s.Grave, id, 1);
-            // Deck and Extra Deck contents are hidden: deck list minus every copy we can see.
-            List<int> seen = new List<int>(z.Hand);
-            seen.AddRange(z.Monsters.Select(m => m.Key));
-            seen.AddRange(z.Spells);
-            seen.AddRange(z.SetSpells);
-            seen.AddRange(z.Grave);
-            seen.AddRange(z.Banished);
-            foreach (int id in db.MainDeck.Distinct()) s.Deck[id] = Math.Max(0, db.MainDeck.Count(x => x == id) - seen.Count(x => x == id));
-            foreach (int id in db.ExtraDeck.Distinct()) s.Extra[id] = Math.Max(0, db.ExtraDeck.Count(x => x == id) - seen.Count(x => x == id));
+            foreach (var kv in z.DeckLeft(db.MainDeck)) s.Deck[kv.Key] = kv.Value;
+            foreach (var kv in z.ExtraLeft(db.ExtraDeck)) s.Extra[kv.Key] = kv.Value;
             foreach (CardEntry c in db.Cards.Values)
                 if (!c.Opponent) // our own usage only
                 foreach (EffectEntry e in c.Effects)
@@ -1481,7 +1558,7 @@ namespace WindBot.Agent.Knowledge
             if (noTargets && HitsFieldCards(c, e)) v = 0;
             // Negating a face-up card until the End Phase (Aggregator ③) on our turn: worth what the best target still holds
             // against us this turn (its unused interruptions), when we know their monsters. GRAVE_PAYOFF.md 6.
-            else if (useBoard && IsTurnNegate(c, e) && _oppMons.Any(m => m.FaceUp)) v = _oppMons.Where(m => m.FaceUp).Max(m => m.Held);
+            else if (useBoard && IsTurnNegate(c, e) && _oppHeld.Count > 0) v = _oppHeld.Max(); // face-up monsters and spells / traps
             foreach (CardLink l in e.Links.Where(x => x.Role == "effect" && !x.Opponent))
             {
                 string f = ValueModel.FunctionOf(l);

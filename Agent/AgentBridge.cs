@@ -148,6 +148,14 @@ namespace WindBot.Agent
                 ValuePolicy vp = _policy as ValuePolicy;
                 if (vp != null) vp.Explore = _values.Weights.Explore;
                 _zones = new DuelZoneView(_duel, _db);
+                // Every decision reads one full picture (DECISION_STATE.md): what the duel shows plus what the agent reads from Lua.
+                _zones.Held = HeldInterrupts;
+                _zones.Guard = c =>
+                {
+                    KeyValuePair<GuardState, double> g = GuardOf(c);
+                    return new KeyValuePair<bool, double>(g.Key == GuardState.Indestructible, g.Key == GuardState.Replace ? g.Value : -1);
+                };
+                _zones.Enrich = z => { foreach (var kv in _noNormalSummonUntil) if (_duel.Turn <= kv.Value) z.NoNormalSummon.Add(kv.Key); };
                 _oppZones = new DuelZoneView(_duel, _db, 1);
                 WriteCardDb();
             }
@@ -186,6 +194,7 @@ namespace WindBot.Agent
                 if (!System.IO.File.Exists(path))
                     System.IO.File.WriteAllText(path, "# 듀얼 상태 기록\n\n", new UTF8Encoding(false));
                 string text = _db.DescribeState(title, InstancesOf);
+                if (_planner != null) text += "### 판단 입력 (모든 판단이 읽는 상태)\n" + CardDbFactory.DescribeState(_db, _zones.Snapshot()) + "\n";
                 if (_values != null) text += "### 패 카드 가치 (유한 등비 합)\n" + CardDbFactory.DescribeValues(_db, _values, _zones);
                 if (_planner != null) text += "### 지금 필드의 방해와 이 상태에서의 최선 계획\n" + CardDbFactory.DescribePlan(_planner, _zones) + "\n";
                 System.IO.File.AppendAllText(path, text, new UTF8Encoding(false));
@@ -808,8 +817,7 @@ namespace WindBot.Agent
                             break;
                         }
                         r.PreferLow = GiveUpHints.Contains(r.Hint);
-                        ZoneSnapshot z = _zones.Snapshot();
-                        ZoneSnapshot planZ = null;
+                        ZoneSnapshot z = _zones.Snapshot(); // the full picture, the same one the plan reads
                         bool negate = NegateHints.Contains(r.Hint);
                         bool removal = RemovalHints.Contains(r.Hint) || negate;
                         bool anyOpponent = r.Options.Any(o => o.Controller == 1);
@@ -838,11 +846,7 @@ namespace WindBot.Agent
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow && r.Hint == 503 /* Remove */)
                                     o.Estimate = _planner.BanishCost(z, o.CardId); // banished (Pot of Prosperity): keep payoff cards, unlike the GY order
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
-                                {
-                                    // Same order the plan used, on the board the plan saw (the opponent's monsters: Aggregator ③ has a target).
-                                    if (planZ == null) planZ = PlanSnapshot();
-                                    o.Estimate = _planner.FodderCost(planZ, o.CardId);
-                                }
+                                    o.Estimate = _planner.FodderCost(z, o.CardId); // same order the plan used, on the same board
                                 else if (o.Location == (int)CardLocation.Grave && r.Hint == 513 /* XyzMaterial */)
                                 {
                                     // Attaching from the GY (Detonator ②): payoff cards first (lower = picked), then by worth as before.
@@ -1100,8 +1104,15 @@ namespace WindBot.Agent
             view.LifePoints = field.LifePoints;
             view.DeckCount = field.Deck != null ? field.Deck.Count : 0;
             AddIds(view.Hand, field.Hand);
-            AddIds(view.Monsters, field.MonsterZone);
+            foreach (ClientCard c in field.MonsterZone)
+            {
+                if (c == null) continue;
+                view.Monsters.Add(c.Id);
+                view.Materials.Add(c.Overlays != null ? new List<int>(c.Overlays) : new List<int>());
+                if (c.IsFacedown()) view.SetMonsters++;
+            }
             AddIds(view.Spells, field.SpellZone);
+            foreach (ClientCard c in field.SpellZone) if (c != null && c.IsFacedown()) view.SetSpells++;
             AddIds(view.Graveyard, field.Graveyard);
             AddIds(view.Banished, field.Banished);
             AddIds(view.Extra, field.ExtraDeck);
@@ -1339,35 +1350,10 @@ namespace WindBot.Agent
             return chosen < 0 ? new BattlePhaseAction(BattlePhaseAction.BattleAction.ToEndPhase) : actions[chosen];
         }
 
-        /// <summary>
-        /// Our zones plus what the planner's battle term needs: whether our Battle Phase is still ahead, LP, and the
-        /// opponent's monsters with their stats, held interruptions and battle protection (same reading as the battle math).
-        /// </summary>
+        /// <summary>The full decision state (DuelZoneView.Snapshot with the agent's own readings): the same picture everywhere.</summary>
         private ZoneSnapshot PlanSnapshot()
         {
-            ZoneSnapshot z = _zones.Snapshot();
-            foreach (var kv in _noNormalSummonUntil) if (_duel.Turn <= kv.Value) z.NoNormalSummon.Add(kv.Key);
-            ClientField opp = _duel.Fields[1];
-            if (opp == null || _duel.Fields[0] == null) return z;
-            z.CanAttack = _duel.Turn > 1 && _duel.Player == 0 && _duel.Phase == DuelPhase.Main1;
-            z.OwnLp = _duel.Fields[0].LifePoints;
-            z.OpponentLp = opp.LifePoints;
-            foreach (ClientCard c in opp.MonsterZone)
-            {
-                if (c == null) continue;
-                OpponentMonster m = new OpponentMonster { Id = c.Id, Atk = c.Attack, Def = c.Defense, AttackPosition = c.IsAttack(), FaceUp = c.IsFaceup() };
-                if (c.IsFaceup() && c.Id != 0)
-                {
-                    m.Held = HeldInterrupts(c);
-                    KeyValuePair<GuardState, double> g = GuardOf(c);
-                    m.Indestructible = g.Key == GuardState.Indestructible;
-                    if (g.Key == GuardState.Replace) m.ReplaceCost = g.Value;
-                }
-                z.OpponentMonsters.Add(m);
-            }
-            foreach (ClientCard c in opp.Graveyard)
-                if (c != null && c.HasType(CardType.Xyz)) z.OpponentGraveXyzRanks += c.Rank;
-            return z;
+            return _zones.Snapshot();
         }
 
         /// <summary>Battle math inputs: LP, monster worth (interruptions held on the field) and battle protection from Lua.</summary>
@@ -1384,15 +1370,17 @@ namespace WindBot.Agent
             return bc;
         }
 
-        /// <summary>Interruptions a monster still offers from the field (e.g. Detonator ② per material, Rafflesia).</summary>
+        /// <summary>Interruptions a face-up field card still offers (e.g. Detonator ② per material, Rafflesia, a continuous trap).</summary>
         private double HeldInterrupts(ClientCard c)
         {
-            CardEntry ce = c == null ? null : _db.EnsureCard(c.Id, c.Controller == 1);
-            if (ce == null || c.IsFacedown()) return 0;
+            CardEntry ce = c == null || c.Id == 0 ? null : _db.EnsureCard(c.Id, c.Controller == 1);
+            if (ce == null || c.IsFacedown() || _planner == null) return 0;
+            bool monster = c.Location == CardLocation.MonsterZone;
             double v = 0;
             foreach (EffectEntry e in ce.Effects)
             {
-                if (e.Range == null || !e.Range.Contains("MZONE") || !_planner.Interrupts.IsInterrupt(ce, e)) continue;
+                bool here = e.Range != null && (monster ? e.Range.Contains("MZONE") : e.Range.Contains("SZONE") || e.Range.Contains("FZONE"));
+                if (!here || !_planner.Interrupts.IsInterrupt(ce, e)) continue;
                 if (e.DetachCount > 0 && c.Overlays.Count < e.DetachCount) continue;
                 KeyUsage u = _db.PeekUsage(c.Controller, e);
                 if (u != null && e.Limit != null && u.Used >= e.Limit.Count) continue;

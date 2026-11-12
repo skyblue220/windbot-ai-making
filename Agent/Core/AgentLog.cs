@@ -127,8 +127,17 @@ namespace WindBot.Agent.Core
             Json j = new Json();
             j.Num("lp", p.LifePoints).Num("deckCount", p.DeckCount)
              .Raw("hand", IntArray(p.Hand)).Raw("monsters", IntArray(p.Monsters)).Raw("spells", IntArray(p.Spells))
-             .Raw("graveyard", IntArray(p.Graveyard)).Raw("banished", IntArray(p.Banished)).Raw("extra", IntArray(p.Extra));
+             .Raw("graveyard", IntArray(p.Graveyard)).Raw("banished", IntArray(p.Banished)).Raw("extra", IntArray(p.Extra))
+             .Raw("materials", IntArrays(p.Materials))
+             .Num("setMonsters", p.SetMonsters).Num("setSpells", p.SetSpells);
             return j.Close();
+        }
+
+        private static string IntArrays(List<List<int>> xss)
+        {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < xss.Count; ++i) { if (i > 0) sb.Append(','); sb.Append(IntArray(xss[i])); }
+            return sb.Append(']').ToString();
         }
 
         private static string IntArray(List<int> xs)

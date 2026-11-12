@@ -165,15 +165,44 @@ namespace WindBot.Agent
                         int v; // optional stats, e.g. 27204312:d:3000:5500 (a token)
                         if (parts.Length > 2 && int.TryParse(parts[2], out v)) m.Atk = v;
                         if (parts.Length > 3 && int.TryParse(parts[3], out v)) m.Def = v;
+                        // optional Xyz materials by id, e.g. 34909328:a:3000:2500:1/2/3 (0 = not known)
+                        if (parts.Length > 4) m.Materials.AddRange(parts[4].Split('/').Select(t => { int x; return int.TryParse(t, out x) ? x : 0; }));
                         foreach (EffectEntry e in oc.Effects)
                             if (e.Range != null && e.Range.Contains("MZONE") && im.IsInterrupt(oc, e)) m.Held += im.Value(oc, e, false);
                         zones.OpponentMonsters.Add(m);
                     }
                     if (zones.OpponentFaceUp < 0) zones.OpponentFaceUp = zones.OpponentMonsters.Count;
                 }
+                // The rest of the opponent's side: spells / traps (0 = set), GY, set monsters, Deck size.
+                //   AgentDbOppSpells=0,0,12345 AgentDbOppGrave=1,2 AgentDbOppSetMonsters=1 AgentDbOppDeck=30
+                string oppSpells = Config.GetString("AgentDbOppSpells");
+                if (oppSpells != null)
+                {
+                    InterruptModel im = new InterruptModel(model.Weights);
+                    foreach (string s in oppSpells.Split(','))
+                    {
+                        int id;
+                        if (!int.TryParse(s.Trim(), out id)) continue;
+                        OpponentCard oc = new OpponentCard { Id = id, FaceUp = id != 0 };
+                        CardEntry ce = id != 0 ? db.EnsureCard(id, true) : null;
+                        if (ce != null)
+                            foreach (EffectEntry e in ce.Effects)
+                                if (e.Range != null && (e.Range.Contains("SZONE") || e.Range.Contains("FZONE")) && im.IsInterrupt(ce, e)) oc.Held += im.Value(ce, e, false);
+                        zones.OpponentSpells.Add(oc);
+                    }
+                    if (Config.GetInt("AgentDbOppFaceUp", -1) < 0) zones.OpponentFaceUp = Math.Max(0, zones.OpponentFaceUp) + zones.OpponentSpells.Count(c => c.FaceUp);
+                }
+                string oppGrave = Config.GetString("AgentDbOppGrave");
+                if (oppGrave != null) foreach (string s in oppGrave.Split(',')) { int id; if (int.TryParse(s.Trim(), out id)) zones.OpponentGrave.Add(id); }
+                for (int i = Config.GetInt("AgentDbOppSetMonsters", 0); i > 0; --i)
+                    zones.OpponentMonsters.Add(new OpponentMonster { Id = 0, FaceUp = false, AttackPosition = false });
+                zones.OpponentDeck = Config.GetInt("AgentDbOppDeck", -1);
                 zones.CanAttack = Config.GetBool("AgentDbCanAttack", oppMons != null);
                 zones.OpponentLp = Config.GetInt("AgentDbOppLp", 8000);
                 sb.AppendLine("# 가치 계산 시험 (패: " + hand + ", 묘지: " + (Config.GetString("AgentDbGrave") ?? "없음") + ", 앞면 마법: " + (Config.GetString("AgentDbSpells") ?? "없음") + ", 일반 소환 가능)");
+                sb.AppendLine();
+                sb.AppendLine("## 판단 입력 (모든 판단이 읽는 상태)");
+                sb.Append(DescribeState(db, zones.Snapshot()));
                 sb.AppendLine();
                 sb.Append(DescribeValues(db, model, zones));
                 sb.AppendLine("## 턴 계획 (흐름 + 턴 종료 방해 − 효율)");
@@ -632,6 +661,38 @@ namespace WindBot.Agent
         }
 
         /// <summary>Best plan for this turn and the best plan for each first move.</summary>
+        /// <summary>The decision state every judgment reads (DECISION_STATE.md), one line per part.</summary>
+        public static string DescribeState(GameCardDb db, ZoneSnapshot z)
+        {
+            Func<int, string> n = id => { if (id == 0) return "?"; CardEntry c = db.Get(id); return c != null ? c.Data.Name : id.ToString(); };
+            Func<IEnumerable<int>, string> ns = ids => { string s = String.Join(", ", ids.Select(n).ToArray()); return s.Length > 0 ? s : "없음"; };
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("- 우리: LP " + z.OwnLp + ", 덱 " + (z.DeckCount >= 0 ? z.DeckCount.ToString() : "모름") + ", 일반 소환 " + (z.NormalSummonAvailable ? "가능" : "사용함") + (z.CanAttack ? ", 배틀 페이즈 남음" : ""));
+            sb.AppendLine("  - 패: " + ns(z.Hand));
+            for (int i = 0; i < z.Monsters.Count; ++i)
+            {
+                List<int> mats = i < z.MonsterMaterials.Count ? z.MonsterMaterials[i] : null;
+                sb.AppendLine("  - 몬스터: " + n(z.Monsters[i].Key) + " (소재 " + z.Monsters[i].Value + (mats != null && mats.Count > 0 ? ": " + ns(mats) : "") + ")");
+            }
+            sb.AppendLine("  - 마법·함정: " + ns(z.Spells.Concat(z.SetSpells)));
+            sb.AppendLine("  - 묘지: " + ns(z.Grave) + " / 제외: " + ns(z.Banished));
+            Func<Dictionary<int, int>, string> left = d => { string s = String.Join(", ", d.Where(kv => kv.Value > 0).Select(kv => n(kv.Key) + (kv.Value > 1 ? " ×" + kv.Value : "")).ToArray()); return s.Length > 0 ? s : "없음"; };
+            sb.AppendLine("  - 엑스트라 덱" + (z.Extra != null ? "" : "(덱 리스트 − 보이는 카드)") + ": " + left(z.ExtraLeft(db.ExtraDeck)));
+            sb.AppendLine("  - 덱 남은 카드(덱 리스트 − 보이는 카드, 소재 포함): " + left(z.DeckLeft(db.MainDeck)));
+            sb.AppendLine("- 상대: LP " + z.OpponentLp + ", 앞면 " + z.OpponentFaceUp + "장, 패 " + (z.OpponentHand >= 0 ? z.OpponentHand.ToString() : "모름")
+                        + (z.OpponentHandKnown.Count > 0 ? " (공개: " + ns(z.OpponentHandKnown) + ")" : "")
+                        + ", 덱 " + (z.OpponentDeck >= 0 ? z.OpponentDeck.ToString() : "모름") + ", 엑스트라 " + (z.OpponentExtra >= 0 ? z.OpponentExtra.ToString() : "모름")
+                        + ", 비공개 " + (z.OpponentHidden >= 0 ? z.OpponentHidden.ToString() : "모름"));
+            foreach (OpponentMonster m in z.OpponentMonsters)
+                sb.AppendLine("  - 몬스터: " + (m.FaceUp ? n(m.Id) + " " + m.Atk + "/" + m.Def + (m.AttackPosition ? " 공격" : " 수비") : "뒷면") + (m.Materials.Count > 0 ? " (소재: " + ns(m.Materials) + ")" : "")
+                            + (m.Held > 0 ? ", 남은 방해 " + m.Held.ToString("0.#") : "") + (m.Indestructible ? ", 전투 내성" : "") + (m.ReplaceCost >= 0 ? ", 파괴 대체 " + m.ReplaceCost.ToString("0.#") : ""));
+            foreach (OpponentCard c in z.OpponentSpells)
+                sb.AppendLine("  - 마법·함정: " + (c.FaceUp ? n(c.Id) : "세트") + (c.Held > 0 ? ", 남은 방해 " + c.Held.ToString("0.#") : ""));
+            sb.AppendLine("  - 묘지: " + ns(z.OpponentGrave) + (z.OpponentGraveXyzRanks > 0 ? " (엑시즈 랭크 합 " + z.OpponentGraveXyzRanks + ")" : "") + " / 제외: " + ns(z.OpponentBanished));
+            if (z.OpponentDrawWatch.Count > 0) sb.AppendLine("  - 드로우 감시: " + String.Join(", ", z.OpponentDrawWatch.Select(w => w.Describe()).ToArray()));
+            return sb.ToString();
+        }
+
         public static string DescribePlan(TurnPlanner planner, IZoneView zones)
         {
             StringBuilder sb = new StringBuilder();
@@ -705,6 +766,11 @@ namespace WindBot.Agent
         public StaticZoneView() { NormalSummonAvailable = true; OpponentFaceUp = -1; }
         public int Materials { get; set; }
         public int FieldMaterials() { return Materials + _monsWithMats.Sum(kv => kv.Value); } // loose materials + those of monsters added with a count
+        public int Attached(int id) { return _matIds.Sum(l => l.Count(x => x == id)); }
+        public int OpponentFaceUpCount() { return OpponentFaceUp; }
+        public readonly List<OpponentCard> OpponentSpells = new List<OpponentCard>();
+        public readonly List<int> OpponentGrave = new List<int>();
+        public int OpponentDeck = -1;
         public int OpponentFaceUp { get; set; }
         public bool CanAttack { get; set; }
         public int OpponentLp { get; set; }
@@ -736,6 +802,9 @@ namespace WindBot.Agent
             ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable, OpponentFaceUp = OpponentFaceUp, CanAttack = CanAttack, OpponentLp = OpponentLp > 0 ? OpponentLp : 8000, OpponentHand = OpponentHand };
             z.OpponentDrawWatch.AddRange(OppDrawWatch);
             z.OpponentMonsters.AddRange(OpponentMonsters);
+            z.OpponentSpells.AddRange(OpponentSpells);
+            z.OpponentGrave.AddRange(OpponentGrave);
+            z.OpponentDeck = OpponentDeck;
             Fill(z.Hand, "HAND");
             List<int> mons = new List<int>();
             Fill(mons, "MZONE");

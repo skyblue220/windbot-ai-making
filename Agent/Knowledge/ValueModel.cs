@@ -208,6 +208,10 @@ namespace WindBot.Agent.Knowledge
         bool NormalSummonAvailable { get; }
         /// <summary>Total Xyz materials attached to our monsters.</summary>
         int FieldMaterials();
+        /// <summary>Own copies attached as Xyz material (out of the Deck / Extra Deck, not on the field as cards).</summary>
+        int Attached(int cardId);
+        /// <summary>The other side's face-up field cards (-1 not known), without building a whole snapshot.</summary>
+        int OpponentFaceUpCount();
         /// <summary>All our visible cards, for the turn planner.</summary>
         ZoneSnapshot Snapshot();
         /// <summary>Any own card in the given zones matches the predicate (used for summon conditions).</summary>
@@ -300,7 +304,7 @@ namespace WindBot.Agent.Knowledge
             List<int> deck = DeckList;
             foreach (int id in deck.Distinct())
             {
-                int n = deck.Count(x => x == id) - z.Hand(id) - z.Field(id) - z.Grave(id) - z.Banished(id);
+                int n = deck.Count(x => x == id) - z.Hand(id) - z.Field(id) - z.Grave(id) - z.Banished(id) - z.Attached(id);
                 left[id] = Math.Max(0, n);
             }
             return left;
@@ -308,7 +312,7 @@ namespace WindBot.Agent.Knowledge
 
         private Ctx NewCtx(IZoneView z, bool nextTurn = false)
         {
-            Ctx c = new Ctx { Zones = z, NormalSummon = nextTurn || z.NormalSummonAvailable, OppFaceUp = z.Snapshot().OpponentFaceUp };
+            Ctx c = new Ctx { Zones = z, NormalSummon = nextTurn || z.NormalSummonAvailable, OppFaceUp = z.OpponentFaceUpCount() };
             foreach (var kv in DeckRemaining(z)) c.DeckLeft[kv.Key] = kv.Value;
             // Effects whose once-per-turn count is already spent this turn (next turn: only once-per-duel ones stay spent).
             foreach (CardEntry card in _db.Cards.Values)
@@ -823,7 +827,7 @@ namespace WindBot.Agent.Knowledge
         private int ExtraLeft(int id, IZoneView z)
         {
             List<int> extra = _side == 0 ? _db.ExtraDeck : _db.OpponentExtraDeck;
-            return extra.Count(x => x == id) - z.Field(id) - z.Grave(id) - z.Banished(id);
+            return extra.Count(x => x == id) - z.Field(id) - z.Grave(id) - z.Banished(id) - z.Attached(id);
         }
 
         /// <summary>Cost of discarding: the cheapest other own card in hand/field, valued by its own effects only (no recursion).</summary>

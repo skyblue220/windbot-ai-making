@@ -1,6 +1,17 @@
 - 상대 드로우 감시: Mulcharmy Fuwalos: 상대 특수 소환 (DECK·EXTRA에서)마다 1장 드로우, 엔드 페이즈에 패가 (상대 필드 + 6)장을 넘으면 덱으로
 # 가치 계산 시험 (패: 8633261,34022970,67972302,89753095,25311006, 묘지: 없음, 앞면 마법: 없음, 일반 소환 가능)
 
+## 판단 입력 (모든 판단이 읽는 상태)
+- 우리: LP 8000, 덱 모름, 일반 소환 가능
+  - 패: Ice Ryzeal, Ext Ryzeal, Sakitama, Lightning Crash, Triple Tactics Talent
+  - 마법·함정: 없음
+  - 묘지: 없음 / 제외: 없음
+  - 엑스트라 덱(덱 리스트 − 보이는 카드): Super Starslayer TY-PHON - Sky Crisis, Mereologic Aggregator, Ryzeal Detonator ×3, Number 104: Masquerade, Infernal Flame Banshee, Ryzeal Duo Drive ×2, Number F0: Utopic Future Zexal, Eclipse Twins, Full Armored Utopic Ray Lancer, Tornado Dragon, Evilswarm Exciton Knight, Traptrix Rafflesia
+  - 덱 남은 카드(덱 리스트 − 보이는 카드, 소재 포함): Nibiru, the Primal Being, Star Ryzeal, Ice Ryzeal ×2, Skull Meister, Sword Ryzeal ×3, Node Ryzeal, Ext Ryzeal ×2, Sakitama, Mulcharmy Fuwalos ×3, Mulcharmy Purulia ×2, Ash Blossom & Joyous Spring ×2, Ghost Ogre & Snow Rabbit, Ghost Belle & Haunted Mansion, Maxx "C", Seventh Tachyon, Pot of Prosperity, Bonfire, Lightning Crash ×2, Ryzeal Plugin, Crossout Designator, Ryzeal Cross, Infinite Impermanence ×3, Gravedigger's Trap Hole, Ryzeal Plasma Hole
+- 상대: LP 8000, 앞면 -1장, 패 9, 덱 모름, 엑스트라 모름, 비공개 모름
+  - 묘지: 없음 / 제외: 없음
+  - 드로우 감시: Mulcharmy Fuwalos: 상대 특수 소환 (DECK·EXTRA에서)마다 1장 드로우, 엔드 페이즈에 패가 (상대 필드 + 6)장을 넘으면 덱으로
+
 - 덱에 남은 카드(덱 매수 − 보이는 장수): Nibiru, the Primal Being 1, Star Ryzeal 1, Ice Ryzeal 2, Skull Meister 1, Sword Ryzeal 3, Node Ryzeal 1, Ext Ryzeal 2, Sakitama 1, Mulcharmy Fuwalos 3, Mulcharmy Purulia 2, Ash Blossom & Joyous Spring 2, Ghost Ogre & Snow Rabbit 1, Ghost Belle & Haunted Mansion 1, Maxx "C" 1, Seventh Tachyon 1, Pot of Prosperity 1, Bonfire 1, Lightning Crash 2, Ryzeal Plugin 1, Crossout Designator 1, Ryzeal Cross 1, Infinite Impermanence 3, Gravedigger's Trap Hole 1, Ryzeal Plasma Hole 1
 - γ = 0.7, 가중치 출처: ./WindBot\agent_values.json
 - 패: Ice Ryzeal → 최선 101.6 = Ice Ryzeal(2) 덱 특수 소환 40 → Sword Ryzeal(2) 서치 30×γ^1 → Ext Ryzeal(1) 룰 특수 소환+코스트(엑스트라→묘지: Mereologic Aggregator 32) 52×γ^2 → Ext Ryzeal(2) 서치 30×γ^3 → Sword Ryzeal(1) 룰 특수 소환 20×γ^4
@@ -15,17 +26,17 @@
   - 다음 턴 후속: 9 = 0.3 × 30 = Lightning Crash(1) 서치 30
 
 ## 턴 계획 (흐름 + 턴 종료 방해 − 효율)
-- 최선 계획: 392.7 (흐름 126.4 + 턴 종료 방해 173.2 + 후속 118.1 − 효율 5장 − 상대 드로우 1장 25) 행동: Ext Ryzeal 룰 특수 소환 → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sakitama 기동(2) → Sakitama 추가 일반 소환 → Lightning Crash 발동(1) → Sword Ryzeal → Triple Tactics Talent 발동(1) → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Sword Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sakitama] → Ryzeal Cross 세트 카드 발동 → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sakitama] → Ryzeal Plasma Hole → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)
+- 최선 계획: 424.7 (흐름 158.3 + 턴 종료 방해 173.2 + 후속 118.1 − 효율 5장 − 상대 드로우 1장 25) 행동: Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → Ext Ryzeal 유발(2) → Sword Ryzeal → Ice Ryzeal 일반 소환 → Ice Ryzeal 유발(2) → Sword Ryzeal → Sword Ryzeal 유발(2) → Ext Ryzeal → Sakitama 기동(2) → Sakitama 추가 일반 소환 → Lightning Crash 발동(1) → Sword Ryzeal → Triple Tactics Talent 발동(1) → Sword Ryzeal 룰 특수 소환 → Ryzeal Detonator 엑시즈 소환 [소재: Ext Ryzeal, Sword Ryzeal] → Infernal Flame Banshee 엑시즈 소환 [소재: Sword Ryzeal, Ice Ryzeal] → Infernal Flame Banshee 기동(1) [떼기: Sword Ryzeal] → Star Ryzeal → Star Ryzeal 룰 특수 소환 [떼기: Ice Ryzeal] → Star Ryzeal 유발(2) → Ryzeal Cross → Ryzeal Cross 세트 카드 발동 → Ryzeal Duo Drive 엑시즈 소환 [소재: Star Ryzeal, Sakitama] → Ryzeal Duo Drive 기동(3) [떼기: Star Ryzeal, Sakitama] → Ryzeal Plasma Hole → Ryzeal Cross 기동(3) [덱으로: Sword Ryzeal, Star Ryzeal] +드로우 | 방해: Ryzeal Plasma Hole(세트 ×2), Ryzeal Cross, Ryzeal Detonator(1) ×2, Ryzeal Detonator(3)
 - 아무것도 안 하고 턴 종료: 73.3 (흐름 0 + 턴 종료 방해 0 + 후속 73.3 − 효율 0장)
-  - 첫 행동 Ext Ryzeal 룰 특수 소환 → 392.7
-  - 첫 행동 Ice Ryzeal 일반 소환 → 391.2
-  - 첫 행동 Lightning Crash 발동(1) → Sword Ryzeal → 365
-  - 첫 행동 Sakitama 기동(2) → Sakitama 추가 일반 소환 → 358.4
-  - 첫 행동 Triple Tactics Talent 발동(1) → 345.5
-  - 첫 행동 Lightning Crash 발동(1) → Node Ryzeal → 325.6
-  - 첫 행동 Ext Ryzeal 일반 소환 → 316.4
-  - 첫 행동 Ice Ryzeal 룰 특수 소환 [코스트: Sakitama] → 279.2
-  - 첫 행동 Sakitama 일반 소환 → 274.1
+  - 첫 행동 Ext Ryzeal 룰 특수 소환 [코스트: Mereologic Aggregator] → 424.7
+  - 첫 행동 Ice Ryzeal 일반 소환 → 421.1
+  - 첫 행동 Lightning Crash 발동(1) → Sword Ryzeal → 378.6
+  - 첫 행동 Sakitama 기동(2) → Sakitama 추가 일반 소환 → 372.1
+  - 첫 행동 Triple Tactics Talent 발동(1) → 359.2
+  - 첫 행동 Lightning Crash 발동(1) → Node Ryzeal → 334.6
+  - 첫 행동 Ext Ryzeal 일반 소환 → 316.5
+  - 첫 행동 Ice Ryzeal 룰 특수 소환 [코스트: Sakitama] → 298.2
+  - 첫 행동 Sakitama 일반 소환 → 296.4
 - (탐색 예산 소진: 일부 경로만 확인)
 
 ## 덱에 대상이 없어 0점인 효과 (서치·특수 소환·세트·덱에서 사용)
@@ -71,8 +82,8 @@
 - Traptrix Rafflesia: 65
 
 ## 엑스트라 덱 코스트 순서 (낮을수록 먼저 묘지로, 상대 앞면 -1장)
-- Eclipse Twins: -1739.64
-- Mereologic Aggregator: -1589.47
+- Mereologic Aggregator: -3189.47
+- Eclipse Twins: -2334.64
 - Ryzeal Duo Drive: 0.41
 - Ryzeal Detonator: 0.61
 - Full Armored Utopic Ray Lancer: 10.11

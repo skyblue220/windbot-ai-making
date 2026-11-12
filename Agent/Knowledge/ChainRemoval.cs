@@ -48,6 +48,8 @@ namespace WindBot.Agent.Knowledge
         public int Banished(int cardId) { return _z.Banished(cardId); }
         public bool NormalSummonAvailable { get { return _z.NormalSummonAvailable; } }
         public int FieldMaterials() { return Math.Max(_n, _z.FieldMaterials()); }
+        public int Attached(int cardId) { return _z.Attached(cardId); }
+        public int OpponentFaceUpCount() { return _z.OpponentFaceUpCount(); }
         public ZoneSnapshot Snapshot() { return _z.Snapshot(); }
         public bool AnyOwn(string zones, Func<int, bool> match) { return _z.AnyOwn(zones, match); }
     }
