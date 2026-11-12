@@ -1340,6 +1340,7 @@ namespace WindBot.Agent.Knowledge
                     if (xid == 0) return false;
                     s.Add(s.Extra, xid, -1);
                     s.Add(s.Grave, xid, 1);
+                    paid.Add(xid); // shown in the move and followed by the live cost pick (FollowPlanCost)
                     cost += _w.BaseOf("cost_extra_to_grave") + FirePayoff(s, xid);
                 }
                 else if (l.Location != null && l.Location.Contains("DECK") && !l.Location.Contains("HAND") && l.Relation.Contains("묘지로"))
@@ -1411,7 +1412,17 @@ namespace WindBot.Agent.Knowledge
         /// </remarks>
         private double FodderCost(St s, int id)
         {
-            return -GraveBonus(id) * 100 + (_w.Excluded.Contains(id) ? -20 : 0) + (SpareRecyclable(s, id) ? 0 : 10) + ExtraUsefulness(s, id) * 0.01;
+            return -FodderPayoff(s, id) * 100 + (_w.Excluded.Contains(id) ? -20 : 0) + (SpareRecyclable(s, id) ? 0 : 10) + ExtraUsefulness(s, id) * 0.01;
+        }
+
+        /// <summary>
+        /// What sending this Extra Deck card to the GY brings: its payoff now on this board (Aggregator ③ negating a face-up
+        /// Detonator; nothing with no face-up card) or kept for a detach on the opponent's turn once attached, the larger.
+        /// Not the board-blind GraveBonus: with a Detonator on their field Aggregator now beats Eclipse Twins later.
+        /// </summary>
+        private double FodderPayoff(St s, int id)
+        {
+            return Math.Max(PayoffNow(s, id), PayoffKeep(id));
         }
 
         /// <summary>A copy beyond the one we would summon this turn, of an Xyz one of our GY → Deck effects can return.</summary>

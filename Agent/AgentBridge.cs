@@ -809,6 +809,7 @@ namespace WindBot.Agent
                         }
                         r.PreferLow = GiveUpHints.Contains(r.Hint);
                         ZoneSnapshot z = _zones.Snapshot();
+                        ZoneSnapshot planZ = null;
                         bool negate = NegateHints.Contains(r.Hint);
                         bool removal = RemovalHints.Contains(r.Hint) || negate;
                         bool anyOpponent = r.Options.Any(o => o.Controller == 1);
@@ -837,7 +838,11 @@ namespace WindBot.Agent
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow && r.Hint == 503 /* Remove */)
                                     o.Estimate = _planner.BanishCost(z, o.CardId); // banished (Pot of Prosperity): keep payoff cards, unlike the GY order
                                 else if (o.Location == (int)CardLocation.Extra && r.PreferLow)
-                                    o.Estimate = _planner.FodderCost(z, o.CardId); // same order the plan used (e.g. Ext Ryzeal ① sends Eclipse Twins)
+                                {
+                                    // Same order the plan used, on the board the plan saw (the opponent's monsters: Aggregator ③ has a target).
+                                    if (planZ == null) planZ = PlanSnapshot();
+                                    o.Estimate = _planner.FodderCost(planZ, o.CardId);
+                                }
                                 else if (o.Location == (int)CardLocation.Grave && r.Hint == 513 /* XyzMaterial */)
                                 {
                                     // Attaching from the GY (Detonator ②): payoff cards first (lower = picked), then by worth as before.
