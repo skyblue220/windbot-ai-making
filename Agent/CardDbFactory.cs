@@ -698,6 +698,41 @@ namespace WindBot.Agent
             return sb.ToString();
         }
 
+        /// <summary>A term's numbers as the formula they multiply out to: 기본 (+보정) × 기회 × 계수 + 가산, uses in parentheses.</summary>
+        public static string TermFormula(Agent.Core.ValueTerm t)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            string s = "기본 " + t.Base.ToString("0.##", inv);
+            if (t.Offset != 0) s = "(" + s + " " + (t.Offset > 0 ? "+" : "−") + " 보정 " + Math.Abs(t.Offset).ToString("0.##", inv) + ")";
+            if (!double.IsNaN(t.Chance))
+            {
+                // For an interruption the chance is the expected number of uses (one chance per use, summed).
+                bool uses = t.Kind.StartsWith("end_") || t.Kind == "interrupt";
+                s += " × " + (uses ? (t.Count > 1 ? "기대 사용 " : "기회 ") : "γ^k ") + t.Chance.ToString("0.###", inv);
+            }
+            if (t.Factor != 1) s += " × 계수 " + t.Factor.ToString("0.###", inv);
+            if (t.Add != 0) s += " + 가산 " + t.Add.ToString("0.##", inv);
+            if (t.Count != 1) s += " (" + t.Count + "회)";
+            return s;
+        }
+
+        /// <summary>Which parts of a plan's value its replayed terms miss (plan − terms): flow, end of turn, follow-up, battle, hand spent, opponent draws.</summary>
+        private static string PartGaps(List<Agent.Core.ValueTerm> rt, PlanResult r)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            Func<Func<Agent.Core.ValueTerm, bool>, double> sum = f => rt.Where(f).Sum(t => t.Value);
+            var parts = new List<KeyValuePair<string, double>>
+            {
+                new KeyValuePair<string, double>("흐름", r.FlowValue - sum(t => t.Kind == "flow")),
+                new KeyValuePair<string, double>("턴 종료 방해", r.EndValue - sum(t => t.Kind.StartsWith("end_"))),
+                new KeyValuePair<string, double>("후속", r.FollowValue - sum(t => t.Kind == "follow" || t.Kind == "bonus" || t.Kind == "draw")),
+                new KeyValuePair<string, double>("전투", r.BattleValue - sum(t => t.Kind == "battle")),
+                new KeyValuePair<string, double>("상대 드로우", -r.OppDrawCost - sum(t => t.Kind == "opp_draw")),
+            };
+            string hand = " 사용한 패 계획 " + r.HandSpent + "장 / 항목 " + rt.Where(t => t.Kind == "efficiency").Sum(t => t.Count) + "장";
+            return " — 차이: " + String.Join(", ", parts.Where(p => Math.Abs(p.Value) > 0.01).Select(p => p.Key + " " + p.Value.ToString("0.##", inv)).ToArray()) + ";" + hand;
+        }
+
         public static string DescribePlan(TurnPlanner planner, IZoneView zones)
         {
             StringBuilder sb = new StringBuilder();
@@ -719,23 +754,31 @@ namespace WindBot.Agent
             {
                 CardEntry tc = t.CardId != 0 ? planner.Db.Get(t.CardId) : null;
                 sb.AppendLine("  - " + t.Kind + (tc != null ? " " + tc.Data.Name + (t.Effect != 0 ? "(" + t.Effect + ")" : "") : "")
-                              + ": 기본 " + t.Base.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
-                              + (double.IsNaN(t.Chance) ? "" : " × " + t.Chance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))
-                              + (t.Count != 1 ? " (" + t.Count + "회)" : "") + " → " + t.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                              + ": " + TermFormula(t) + " → " + t.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
                               + (t.Note != null ? " [" + t.Note + "]" : ""));
             }
-            int matched = 0, residual = 0;
+            int matched = 0, residual = 0, loose = 0;
             double worst = 0;
+            List<string> gaps = new List<string>();
             foreach (PlanResult r in byFirst.Concat(new[] { stop }))
             {
                 List<Agent.Core.ValueTerm> rt = planner.Explain(snap, r);
                 double gap = Math.Abs(rt.Sum(t => t.Value) - r.Value);
-                if (rt.Any(t => t.Kind == "residual")) residual++;
+                if (rt.Any(t => t.Note != null && t.Note.Contains("재현:"))) loose++;
+                Agent.Core.ValueTerm res = rt.FirstOrDefault(t => t.Kind == "residual");
+                if (res != null)
+                {
+                    residual++;
+                    gaps.Add("  - " + (r.Moves.Count > 0 ? "첫 행동 " + r.Moves[0].Text : "턴 종료") + ": "
+                             + res.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " (" + res.Note + ")" + PartGaps(rt, r));
+                }
                 else if (gap < 0.01) matched++;
                 worst = Math.Max(worst, Math.Abs(rt.Where(t => t.Kind == "residual").Sum(t => t.Value)));
             }
             sb.AppendLine("- 항목 합 검사: 계획 " + (byFirst.Count + 1) + "개 중 항목만으로 맞음 " + matched + "개, 재현 차이 항목 " + residual + "개"
-                          + (residual > 0 ? " (최대 " + worst.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + ")" : ""));
+                          + (residual > 0 ? " (최대 " + worst.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + ")" : "")
+                          + (loose > 0 ? ", 고른 카드가 달라도 같은 행동으로 따라간 계획 " + loose + "개" : ""));
+            foreach (string g in gaps) sb.AppendLine(g);
             int replay = Config.GetInt("AgentDbPlanReplay", 0);
             if (replay > 0)
             {

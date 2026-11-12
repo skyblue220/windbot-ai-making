@@ -135,6 +135,8 @@ namespace WindBot.Agent.Core
                 j.Raw("base", Dec(t.Base));
                 if (t.Offset != 0) j.Raw("offset", Dec(t.Offset));
                 if (!double.IsNaN(t.Chance)) j.Raw("chance", Dec(t.Chance));
+                if (t.Factor != 1) j.Raw("factor", Dec(t.Factor));
+                if (t.Add != 0) j.Raw("add", Dec(t.Add));
                 if (t.Count != 1) j.Num("count", t.Count);
                 j.Raw("value", Dec(t.Value));
                 if (t.Note != null) j.Str("note", t.Note);

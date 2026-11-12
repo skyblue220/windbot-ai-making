@@ -73,8 +73,11 @@ namespace WindBot.Agent.Core
 
     /// <summary>
     /// One part of an option's estimate, so a learner can tell which number fed a decision:
-    /// Value = what this part adds (the parts sum to the estimate); Base = the shared value it starts from (its learned Offset
-    /// included); Chance = the factor applied to it when there is one (γ^depth for a plan step, P(a use comes) for an interruption).
+    /// Value = what this part adds (the parts sum to the estimate); Base = the shared value it starts from, Offset = the card
+    /// effect's learned offset on it. When Chance is set, Value = (Base + Offset) × Chance × Factor + Add: Chance = γ^depth for
+    /// a plan step, the expected number of uses (sum of each use's chance) for an interruption; Factor = shared multipliers
+    /// (reactive, both-sides mass, lock on both players); Add = per-use bonuses (solving timing, hand trap) × Count.
+    /// So a change d in Offset moves Value by d × Chance × Factor.
     /// Kinds: flow (a plan step), end_hand / end_set / end_zone / end_field / end_payoff (an interruption held at the end of the
     /// turn), follow (a hand card's next-turn use), bonus, draw, battle, efficiency, opp_draw (plan parts); interrupt (a chain
     /// answer now), pass, removal_take, removal_hold, xyz_gain, xyz_hold, bait (reordering of answers offered together);
@@ -88,6 +91,8 @@ namespace WindBot.Agent.Core
         public double Base;
         public double Offset;
         public double Chance = double.NaN;
+        public double Factor = 1;
+        public double Add;
         public int Count = 1;
         public double Value;
         public string Note;

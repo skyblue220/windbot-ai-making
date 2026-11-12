@@ -266,16 +266,50 @@ namespace WindBot.Agent.Knowledge
             return v;
         }
 
-        /// <summary>One use now, as log terms (VALUE_LEARNING_PLAN.md step 1): the effect, then the hand-trap bonus.</summary>
+        /// <summary>One use now, as log terms (VALUE_LEARNING_PLAN.md step 1).</summary>
         public List<ValueTerm> Terms(CardEntry c, EffectEntry e, bool inHand)
         {
-            double bonus = inHand ? _w.BaseOf("int.handtrap_bonus") : 0;
-            List<ValueTerm> t = new List<ValueTerm>
+            return new List<ValueTerm> { UseTerm("interrupt", c, e, inHand, 1, 1) };
+        }
+
+        /// <summary>Product of UseValue's multipliers after the base × chance (reactive, both-sides mass, lock on both players).</summary>
+        private double Factor(CardEntry c, EffectEntry e)
+        {
+            double f = 1;
+            if (Reactive(c, e)) f *= _w.BaseOf("int.reactive_factor");
+            if (e.Mass == "both") f *= _w.BaseOf("int.self_hit");
+            if (e.LockAtkAbove > 0 && e.LockBoth) f *= 1 - Math.Max(0, _db.PlayShare(c, e, true));
+            return f;
+        }
+
+        /// <summary>
+        /// Uses kFrom .. kFrom+count-1 of an effect as one log term whose numbers multiply out:
+        /// Value = (Base + Offset) × Chance × Factor + Add, where Chance = the expected uses (sum of each use's chance),
+        /// Factor = the shared multipliers and Add = the per-use bonuses (solving timing, hand trap) × count.
+        /// A copy effect (Rafflesia ⑤) shows the activation it copies. Value is always UseValue's exact sum.
+        /// </summary>
+        public ValueTerm UseTerm(string kind, CardEntry c, EffectEntry e, bool inHand, int kFrom, int count)
+        {
+            double value = 0;
+            for (int k = kFrom; k < kFrom + count; ++k) value += UseValue(c, e, inHand, k);
+            CardEntry bc = c;
+            EffectEntry be = e;
+            string note = TypeName(c, e);
+            if (e.Copies)
             {
-                new ValueTerm { Kind = "interrupt", CardId = c.Data.Id, Effect = e.Index, Base = TypeValue(c, e), Offset = _w.OffsetOf(c.Data.Id, e.Index),
-                                Chance = e.Copies ? double.NaN : Chance(c, e, 1), Value = Value(c, e, inHand) - bonus, Note = TypeName(c, e) }
-            };
-            if (inHand) t.Add(new ValueTerm { Kind = "bonus", CardId = c.Data.Id, Effect = e.Index, Base = bonus, Value = bonus, Note = "핸드트랩 가산" });
+                var best = CopyTargets(e).OrderByDescending(x => UseValue(x.Key, x.Value, false, kFrom)).FirstOrDefault();
+                if (best.Key == null) return new ValueTerm { Kind = kind, CardId = c.Data.Id, Effect = e.Index, Base = value, Count = count, Value = value, Note = note };
+                bc = best.Key; be = best.Value;
+                note += ": " + bc.Data.Name;
+            }
+            double chance = 0;
+            for (int k = kFrom; k < kFrom + count; ++k) chance += Chance(bc, be, k);
+            double add = count * ((!be.Copies && be.Response != null && be.Response.Timing == "solving" ? _w.BaseOf("int.chainproof_bonus") : 0)
+                                  + (inHand ? _w.BaseOf("int.handtrap_bonus") : 0));
+            ValueTerm t = new ValueTerm { Kind = kind, CardId = c.Data.Id, Effect = e.Index, Base = TypeValue(bc, be), Offset = _w.OffsetOf(bc.Data.Id, be.Index),
+                                          Chance = chance, Factor = Factor(bc, be), Add = add, Count = count, Value = value, Note = note };
+            // A copy effect may copy different cards for different uses: then the parts do not multiply out, only the value is kept.
+            if (Math.Abs((t.Base + t.Offset) * t.Chance * t.Factor + t.Add - value) > 1e-6) { t.Base = value; t.Offset = 0; t.Chance = double.NaN; t.Factor = 1; t.Add = 0; }
             return t;
         }
 
@@ -786,7 +820,23 @@ namespace WindBot.Agent.Knowledge
         }
 
         /// <summary>Step identity for the hint: the label carries materials, costs, detaches and targets, which tell variants of one card's move apart.</summary>
-        private static string StepKey(PlanMove m) { return m.Kind + "|" + m.CardId + "|" + m.EffectIndex + "|" + m.TargetId + "|" + m.Text; }
+        private static string StepKey(PlanMove m) { return LooseKey(m) + "|" + m.TargetId + "|" + OrderFree(m.Text); }
+
+        /// <summary>The step without its picks (target, materials, costs, detaches): for a replay whose tie-breaks picked other cards.</summary>
+        private static string LooseKey(PlanMove m) { return m.Kind + "|" + m.CardId + "|" + m.EffectIndex; }
+
+        private static readonly System.Text.RegularExpressions.Regex ListInText = new System.Text.RegularExpressions.Regex(@"\[([^\]:]+): ([^\]]*, [^\]]*)\]");
+
+        /// <summary>
+        /// The step text with each bracketed list in name order: the memo treats material order as the same state
+        /// (Mon.MatSig), so a plan stitched from a memoized line may list "[소재: A, B]" where the same move from here lists "[소재: B, A]".
+        /// </summary>
+        private static string OrderFree(string text)
+        {
+            if (text == null || text.IndexOf(", ", StringComparison.Ordinal) < 0) return text;
+            return ListInText.Replace(text, mt => "[" + mt.Groups[1].Value + ": "
+                + String.Join(", ", mt.Groups[2].Value.Split(new[] { ", " }, StringSplitOptions.None).OrderBy(x => x, StringComparer.Ordinal).ToArray()) + "]");
+        }
 
         /// <summary>Where the last Plan picked up the hint (-1: not at all) and how long the hint was.</summary>
         public int HintStartedAt { get; private set; }
@@ -941,6 +991,7 @@ namespace WindBot.Agent.Knowledge
         {
             List<ValueTerm> terms = new List<ValueTerm>();
             St s = FromSnapshot(z, _db);
+            string stoppedAt = null;
             List<PlanMove> saved = _hint;
             _hint = plan.Moves;
             try
@@ -950,11 +1001,17 @@ namespace WindBot.Agent.Knowledge
                 {
                     var moves = Moves(s, k).ToList();
                     int h = HintIndex(moves, at);
-                    if (h < 0) break;
+                    // The same move with other picks (a tie broken the other way in a memoized line): followed, its gain from here.
+                    // Also when only a shorter move matches exactly: an Xyz Summon alone matches while its bundled trigger
+                    // attached another card, and the trigger never comes alone.
+                    bool loose = false;
+                    int l = LooseIndex(moves, at);
+                    if (l >= 0 && (h < 0 || moves[l].Key.Count > moves[h].Key.Count)) { h = l; loose = !HintMatches(at, moves[l].Key); }
+                    if (h < 0) { stoppedAt = plan.Moves[at].Text; break; }
                     double disc = Math.Pow(_w.Gamma, k);
                     foreach (PlanMove m in moves[h].Key)
                         terms.Add(new ValueTerm { Kind = "flow", CardId = m.CardId, Effect = m.EffectIndex, Base = m.Gain, Offset = _w.OffsetOf(m.CardId, m.EffectIndex),
-                                                  Chance = disc, Value = m.Gain * disc, Note = m.Kind });
+                                                  Chance = disc, Value = m.Gain * disc, Note = m.Kind + (loose ? " (재현: 고른 카드 다름)" : "") });
                     s = moves[h].Value;
                     at += moves[h].Key.Count;
                     ++k;
@@ -963,8 +1020,32 @@ namespace WindBot.Agent.Knowledge
             }
             finally { _hint = saved; }
             double sum = terms.Sum(t => t.Value);
-            if (Math.Abs(sum - plan.Value) > 0.01) terms.Add(new ValueTerm { Kind = "residual", Base = plan.Value - sum, Value = plan.Value - sum, Note = "계획 재현 차이" });
+            if (Math.Abs(sum - plan.Value) > 0.01) terms.Add(new ValueTerm { Kind = "residual", Base = plan.Value - sum, Value = plan.Value - sum, Note = "계획 재현 차이" + (stoppedAt != null ? ": " + stoppedAt + " 에서 멈춤" : "") });
             return terms;
+        }
+
+        /// <summary>
+        /// The move whose steps match the plan's from <paramref name="at"/> by kind, card and effect only: the longest,
+        /// then the one with the most steps on the plan's target. -1: none.
+        /// </summary>
+        private int LooseIndex(List<KeyValuePair<List<PlanMove>, St>> moves, int at)
+        {
+            int best = -1, bestScore = -1;
+            for (int i = 0; i < moves.Count; ++i)
+            {
+                List<PlanMove> steps = moves[i].Key;
+                if (at + steps.Count > _hint.Count) continue;
+                bool ok = true;
+                int same = 0;
+                for (int j = 0; j < steps.Count && ok; ++j)
+                {
+                    ok = LooseKey(_hint[at + j]) == LooseKey(steps[j]);
+                    if (_hint[at + j].TargetId == steps[j].TargetId) same++;
+                }
+                int score = steps.Count * 100 + same;
+                if (ok && score > bestScore) { best = i; bestScore = score; }
+            }
+            return best;
         }
 
         /// <summary>All moves from a state: each is the list of steps it consists of (main step + triggers) and the resulting state.</summary>
@@ -2021,12 +2102,14 @@ namespace WindBot.Agent.Knowledge
         {
             double total = 0;
             // Log terms (Explain only): one per card effect held, its value summed over its uses.
-            Action<string, CardEntry, EffectEntry, int, double> term = (kind, tc, te, count, v) =>
+            // Uses kFrom .. kFrom+count-1 of the effect (InterruptModel.UseTerm: base × expected uses × factor + bonuses).
+            Action<string, CardEntry, EffectEntry, bool, int, int, double> term = (kind, tc, te, inHand, kFrom, count, v) =>
             {
                 if (terms == null || tc == null) return;
-                terms.Add(new ValueTerm { Kind = kind, CardId = tc.Data.Id, Effect = te != null ? te.Index : 0, Base = te != null ? _int.TypeValue(tc, te) : v,
-                                          Offset = te != null ? _w.OffsetOf(tc.Data.Id, te.Index) : 0, Chance = te != null && !te.Copies ? _int.Chance(tc, te, 1) : double.NaN,
-                                          Count = count, Value = v, Note = te != null ? _int.TypeName(tc, te) : "상대 턴 묘지 효과" });
+                ValueTerm t = te != null ? _int.UseTerm(kind, tc, te, inHand, kFrom, count)
+                                         : new ValueTerm { Kind = kind, CardId = tc.Data.Id, Base = v, Count = count, Note = "상대 턴 묘지 효과" };
+                t.Value = v;
+                terms.Add(t);
             };
             bool fieldEmpty = s.Mons.Count == 0 && s.Spells.Count == 0 && s.Inactive.Count == 0;
             int spellZones = s.Spells.Count + s.Inactive.Count;
@@ -2049,16 +2132,17 @@ namespace WindBot.Agent.Knowledge
                     int used = 0; // a further copy needs a further play to answer (InterruptModel.UseValue)
                     for (int i = 0; i < copies; ++i)
                     {
-                        if (fromHand) { double v = _int.UseValue(c, act, true, ++used); total += v; term("end_hand", c, act, 1, v); board.Add(Name(c) + "(패)"); }
+                        if (fromHand) { double v = _int.UseValue(c, act, true, ++used); total += v; term("end_hand", c, act, true, used, 1, v); board.Add(Name(c) + "(패)"); }
                         else if (spellZones < 5)
                         {
                             spellZones++;
                             int mult = _int.MultipliesByCondition(c, act) ? ConditionCount(act, s) : 1;
                             if (mult <= 0 || !FieldConditions(act, s)) { board.Add(Name(c) + "(세트, 지금은 조건 불충족)"); continue; }
                             double sv = 0;
+                            int first = used + 1;
                             for (int j = 0; j < mult; ++j) sv += _int.UseValue(c, act, false, ++used);
                             total += sv;
-                            term("end_set", c, act, mult, sv);
+                            term("end_set", c, act, false, first, mult, sv);
                             board.Add(Name(c) + "(세트" + (mult > 1 ? " ×" + mult : "") + ")");
                         }
                     }
@@ -2071,7 +2155,7 @@ namespace WindBot.Agent.Knowledge
                     if (e.Range == null || !e.Range.Contains("HAND")) continue;
                     if (e.RequiresEmptyField && !fieldEmpty) continue;
                     if (!keys.Add(e.UsageKey + "#hand")) continue;
-                    for (int i = 0; i < uses; ++i) { double v = _int.UseValue(c, e, true, i + 1); total += v; term("end_hand", c, e, 1, v); board.Add(Name(c) + "(패)"); }
+                    for (int i = 0; i < uses; ++i) { double v = _int.UseValue(c, e, true, i + 1); total += v; term("end_hand", c, e, true, i + 1, 1, v); board.Add(Name(c) + "(패)"); }
                 }
             }
 
@@ -2089,7 +2173,7 @@ namespace WindBot.Agent.Knowledge
                     if (mult <= 0) continue;
                     double zv = _int.Uses(c, e, false, mult);
                     total += zv;
-                    term("end_zone", c, e, mult, zv);
+                    term("end_zone", c, e, false, 1, mult, zv);
                     board.Add(Name(c) + (mult > 1 ? " ×" + mult : ""));
                 }
             }
@@ -2125,7 +2209,7 @@ namespace WindBot.Agent.Knowledge
                     for (int k = before + 1; k <= before + uses; ++k) got += _int.UseValue(c, e, false, k);
                     usedK[e] = before + uses;
                     total += got;
-                    term("end_field", c, e, uses, got);
+                    term("end_field", c, e, false, before + 1, uses, got);
                     board.Add(Name(c) + "(" + e.Index + ")" + (uses > 1 ? " ×" + uses : "") + " " + got.ToString("0.#", CultureInfo.InvariantCulture));
                 }
             }
@@ -2146,7 +2230,7 @@ namespace WindBot.Agent.Knowledge
                     if (p != null && p.Key != null && !payKeys.Add(p.Key)) continue;
                     opp--;
                     total += v;
-                    term("end_payoff", _db.Get(id), null, 1, v);
+                    term("end_payoff", _db.Get(id), null, false, 1, 1, v);
                     board.Add(Name(_db.Get(id)) + "(" + Name(_db.Get(m.Id)) + " 소재, 상대 턴 묘지 효과)");
                 }
             }
