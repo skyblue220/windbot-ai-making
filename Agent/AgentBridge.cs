@@ -1104,6 +1104,8 @@ namespace WindBot.Agent
             view.LifePoints = field.LifePoints;
             view.DeckCount = field.Deck != null ? field.Deck.Count : 0;
             AddIds(view.Hand, field.Hand);
+            // Before the duel starts (rock-paper-scissors) the zones do not exist yet.
+            if (field.MonsterZone != null)
             foreach (ClientCard c in field.MonsterZone)
             {
                 if (c == null) continue;
@@ -1112,7 +1114,7 @@ namespace WindBot.Agent
                 if (c.IsFacedown()) view.SetMonsters++;
             }
             AddIds(view.Spells, field.SpellZone);
-            foreach (ClientCard c in field.SpellZone) if (c != null && c.IsFacedown()) view.SetSpells++;
+            if (field.SpellZone != null) foreach (ClientCard c in field.SpellZone) if (c != null && c.IsFacedown()) view.SetSpells++;
             AddIds(view.Graveyard, field.Graveyard);
             AddIds(view.Banished, field.Banished);
             AddIds(view.Extra, field.ExtraDeck);

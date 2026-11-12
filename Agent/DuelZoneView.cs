@@ -60,7 +60,7 @@ namespace WindBot.Agent
         public int OpponentFaceUpCount()
         {
             ClientField opp = Other;
-            if (opp == null) return -1;
+            if (opp == null || opp.MonsterZone == null || opp.SpellZone == null) return -1;
             int up = 0;
             foreach (ClientCard c in opp.MonsterZone) if (c != null && c.IsFaceup()) up++;
             foreach (ClientCard c in opp.SpellZone) if (c != null && c.IsFaceup()) up++;
@@ -70,7 +70,8 @@ namespace WindBot.Agent
         public ZoneSnapshot Snapshot()
         {
             ZoneSnapshot z = new ZoneSnapshot { NormalSummonAvailable = NormalSummonAvailable };
-            if (Self == null || Self.Hand == null) return z;
+            // Before the duel starts (rock-paper-scissors) the zones do not exist yet.
+            if (Self == null || Self.Hand == null || Self.MonsterZone == null || Self.SpellZone == null) return z;
             // ---- our side
             foreach (ClientCard c in Self.Hand) if (c != null && c.Id != 0) z.Hand.Add(c.Id);
             foreach (ClientCard c in Self.MonsterZone)
@@ -94,7 +95,7 @@ namespace WindBot.Agent
             z.OwnLp = Self.LifePoints;
             // ---- the other side
             ClientField opp = Other;
-            if (opp != null)
+            if (opp != null && opp.MonsterZone != null && opp.SpellZone != null)
             {
                 z.OpponentLp = opp.LifePoints;
                 z.OpponentFaceUp = OpponentFaceUpCount();
