@@ -64,6 +64,14 @@ namespace WindBot.Agent.Core
             Write(j);
         }
 
+        /// <summary>The value weights in use: a hash of their full content (defaults + file), so each duel names the numbers it ran on.</summary>
+        public void Weights(string hash, string source, int retired)
+        {
+            Json j = Begin("weights");
+            j.Str("hash", hash).Str("source", source).Num("retiredKeys", retired);
+            Write(j);
+        }
+
         public void CardDb(string tag, string path, int cards)
         {
             Json j = Begin("carddb");
@@ -108,9 +116,37 @@ namespace WindBot.Agent.Core
                  .Num("description", o.Description).Num("param1", o.Param1).Num("param2", o.Param2).Num("value", o.Value);
                 if (o.Info != null) j.Str("info", o.Info);
                 if (!double.IsNaN(o.Estimate)) j.Raw("estimate", o.Estimate.ToString("0.###", CultureInfo.InvariantCulture));
+                if (o.Terms != null) j.Raw("terms", TermsJson(o.Terms));
                 sb.Append(j.Close());
             }
             return sb.Append(']').ToString();
+        }
+
+        private static string TermsJson(List<ValueTerm> terms)
+        {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < terms.Count; ++i)
+            {
+                ValueTerm t = terms[i];
+                if (i > 0) sb.Append(',');
+                Json j = new Json();
+                j.Str("kind", t.Kind);
+                if (t.CardId != 0) j.Num("card", t.CardId).Num("effect", t.Effect);
+                j.Raw("base", Dec(t.Base));
+                if (t.Offset != 0) j.Raw("offset", Dec(t.Offset));
+                if (!double.IsNaN(t.Chance)) j.Raw("chance", Dec(t.Chance));
+                if (t.Count != 1) j.Num("count", t.Count);
+                j.Raw("value", Dec(t.Value));
+                if (t.Note != null) j.Str("note", t.Note);
+                sb.Append(j.Close());
+            }
+            return sb.Append(']').ToString();
+        }
+
+        private static string Dec(double v)
+        {
+            if (double.IsNaN(v) || double.IsInfinity(v)) return "null";
+            return v.ToString("0.####", CultureInfo.InvariantCulture);
         }
 
         private static string StateJson(StateSnapshot s)

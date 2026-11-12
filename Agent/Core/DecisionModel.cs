@@ -67,6 +67,30 @@ namespace WindBot.Agent.Core
         public string Info;
         /// <summary>Value-model estimate of what this option brings this turn (finite chain sum); NaN when not estimated.</summary>
         public double Estimate = double.NaN;
+        /// <summary>The parts the estimate is made of (VALUE_LEARNING_PLAN.md step 1); their Values sum to Estimate. Null when not estimated.</summary>
+        public List<ValueTerm> Terms;
+    }
+
+    /// <summary>
+    /// One part of an option's estimate, so a learner can tell which number fed a decision:
+    /// Value = what this part adds (the parts sum to the estimate); Base = the shared value it starts from (its learned Offset
+    /// included); Chance = the factor applied to it when there is one (γ^depth for a plan step, P(a use comes) for an interruption).
+    /// Kinds: flow (a plan step), end_hand / end_set / end_zone / end_field / end_payoff (an interruption held at the end of the
+    /// turn), follow (a hand card's next-turn use), bonus, draw, battle, efficiency, opp_draw (plan parts); interrupt (a chain
+    /// answer now), pass, removal_take, removal_hold, xyz_gain, xyz_hold, bait (reordering of answers offered together);
+    /// rule (set by a decision rule, not the value model); residual (a plan replay gap).
+    /// </summary>
+    public sealed class ValueTerm
+    {
+        public string Kind;
+        public int CardId;
+        public int Effect;
+        public double Base;
+        public double Offset;
+        public double Chance = double.NaN;
+        public int Count = 1;
+        public double Value;
+        public string Note;
     }
 
     public sealed class DecisionRequest

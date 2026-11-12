@@ -135,6 +135,7 @@ namespace WindBot.Agent
                     else _log.Error("opponent-deck", "Deck not found: " + OpponentDeck);
                 }
                 _values = new ValueModel(_db, CardDbFactory.LoadWeights());
+                if (_log != null) _log.Weights(_values.Weights.Hash(), _values.Weights.Source, _values.Weights.Retired.Count);
                 _planner = new TurnPlanner(_db, _values.Weights);
                 _bait = new BaitModel(_db, _values.Weights);
                 _loss = new OpponentLossModel(_db, _values.Weights);
@@ -271,6 +272,9 @@ namespace WindBot.Agent
             return best;
         }
 
+        /// <summary>Terms of stopping the plan now (the base the Battle Phase / set / reposition rules add a step to).</summary>
+        private List<ValueTerm> _stopTerms;
+
         /// <summary>Attaches card-DB knowledge to each option so the policy (and the log) sees it.</summary>
         private void Annotate(DecisionRequest r)
         {
@@ -279,6 +283,7 @@ namespace WindBot.Agent
             // Main phase on our turn: plan the rest of the turn once, then read each option's best plan.
             List<PlanResult> byFirst = null;
             PlanResult stop = null;
+            ZoneSnapshot planZ = null;
             _optionPlans.Clear();
             if (r.Kind == RequestKind.Idle && _planner != null && _duel.Player == 0)
             {
@@ -288,10 +293,16 @@ namespace WindBot.Agent
                 _planner.BudgetPerFirstMove = 5000000; // time is the limit now
                 // The line taken before is searched first, so a short re-plan keeps what the long one found.
                 _planner.Hint = !firstOfTurn && _planAhead.Count > 0 ? new List<PlanMove>(_planAhead) : null;
-                try { _planner.Plan(PlanSnapshot(), out byFirst, out stop); }
+                _stopTerms = null;
+                try { planZ = PlanSnapshot(); _planner.Plan(planZ, out byFirst, out stop); }
                 catch (Exception ex) { _log.Error("planner", ex.ToString()); byFirst = null; }
             }
 
+            if (byFirst != null && stop != null)
+            {
+                try { _stopTerms = _planner.Explain(planZ, stop); }
+                catch (Exception ex) { _log.Error("explain", ex.ToString()); }
+            }
             foreach (DecisionOption o in r.Options)
             {
                 if (byFirst != null)
@@ -301,6 +312,8 @@ namespace WindBot.Agent
                     {
                         _optionPlans[o] = p;
                         o.Estimate = p.Value;
+                        try { o.Terms = _planner.Explain(planZ, p); }
+                        catch (Exception ex) { _log.Error("explain", ex.ToString()); }
                         o.Info = (o.CardId != 0 ? (_db.Get(o.CardId) != null ? _db.Get(o.CardId).Data.Name : "") + " | " : "") + "계획 " + p.Describe()
                                + " | 탐색 " + _planner.MillisPerPlan / 1000.0 + "초" + (_planner.HintLength > 0 ? (_planner.HintStartedAt >= 0 ? ", 직전 계획 " + _planner.HintStartedAt + "/" + _planner.HintLength + "단계부터 이어 탐색" : ", 직전 계획과 어긋남") : "");
                         continue;
@@ -341,6 +354,24 @@ namespace WindBot.Agent
 
             try { Estimate(r, stop); }
             catch (Exception ex) { _log.Error("estimate:" + r.Kind, ex.ToString()); }
+            CloseTerms(r);
+        }
+
+        /// <summary>
+        /// Every estimate is the sum of its terms (VALUE_LEARNING_PLAN.md step 1): what a decision rule set or moved on top of the
+        /// value model (tie-breaks, "below passing", picks ordered by a heuristic) becomes a "rule" term.
+        /// </summary>
+        private static void CloseTerms(DecisionRequest r)
+        {
+            foreach (DecisionOption o in r.Options)
+            {
+                if (double.IsNaN(o.Estimate)) { o.Terms = null; continue; }
+                if (o.Terms == null) o.Terms = new List<ValueTerm>();
+                double sum = 0;
+                foreach (ValueTerm t in o.Terms) sum += t.Value;
+                double gap = o.Estimate - sum;
+                if (Math.Abs(gap) > 1e-6) o.Terms.Add(new ValueTerm { Kind = "rule", Base = gap, Value = gap, Note = o.Terms.Count == 0 ? "결정 규칙" : "규칙 보정" });
+            }
         }
 
         private static readonly HashSet<long> GiveUpHints = new HashSet<long>
@@ -478,6 +509,12 @@ namespace WindBot.Agent
                 return true;
             }
             o.Estimate = pass + x.Gain - hold;
+            o.Terms = new List<ValueTerm>
+            {
+                new ValueTerm { Kind = "pass", Base = pass, Value = pass },
+                new ValueTerm { Kind = "xyz_gain", CardId = x.CardId, Base = x.Gain, Value = x.Gain, Note = x.Text },
+                new ValueTerm { Kind = "xyz_hold", Base = hold, Value = -hold }
+            };
             o.Info = (o.Info ?? "") + " | 엑시즈 소환: " + x.Text + " → 턴 종료 방해 +" + x.Gain.ToString("0.#") + " vs 아껴 둘 값 " + hold.ToString("0.#")
                    + " | 소환 후: " + String.Join(", ", x.After.ToArray());
             if (x.Gain > hold)
@@ -495,6 +532,12 @@ namespace WindBot.Agent
             HoldContext ctx = new HoldContext { UsesLeft = RemovalUsesLeft(c, e), TurnLeft = TurnLeft(), OppHand = _duel.Fields[1].Hand.Count };
             RemovalChoice ch = _removal.Choose(c, e, o.Location == (int)CardLocation.Hand, OpponentTargets(), RemovalMax(c, e), _oppZones, _duel.Player == 1, ctx);
             o.Estimate = pass + ch.Gain - ch.Hold;
+            o.Terms = new List<ValueTerm>
+            {
+                new ValueTerm { Kind = "pass", Base = pass, Value = pass },
+                new ValueTerm { Kind = "removal_take", CardId = c.Data.Id, Effect = e.Index, Base = ch.Gain, Count = ch.Picks.Count, Value = ch.Gain },
+                new ValueTerm { Kind = "removal_hold", CardId = c.Data.Id, Effect = e.Index, Base = ch.Hold, Value = -ch.Hold }
+            };
             o.Info = (o.Info ?? "") + " | 제거 " + ch.Describe()
                    + String.Concat(ch.Picks.Select(kv => " | 대상 " + (_db.Get(kv.Key.Id) != null ? _db.Get(kv.Key.Id).Data.Name : "뒷면") + " " + kv.Value.Describe()).ToArray());
         }
@@ -589,6 +632,8 @@ namespace WindBot.Agent
             List<double> est = _bait.Order(pool, fx, opts.Select(o => o.Estimate).ToList(), notes);
             for (int i = 0; i < opts.Count; ++i)
             {
+                if (opts[i].Terms != null && !double.IsNaN(opts[i].Estimate) && est[i] != opts[i].Estimate)
+                    opts[i].Terms.Add(new ValueTerm { Kind = "bait", Base = est[i] - opts[i].Estimate, Value = est[i] - opts[i].Estimate, Note = notes[i] });
                 opts[i].Estimate = est[i];
                 opts[i].Info = (opts[i].Info ?? "") + " | " + notes[i];
             }
@@ -665,6 +710,7 @@ namespace WindBot.Agent
                         if (o.Action == "ToBattlePhase") o.Estimate = stop.Value + 1; // attacking is how the game is won
                         else if (o.Action == "SetSpell" && IsSetInterrupt(o.CardId)) o.Estimate = stop.Value + 1; // the plan counts it as set
                         else if (o.Action == "Repos" && ReposWanted(o)) o.Estimate = stop.Value + 2; // free, and the plan does not move it
+                        if (!double.IsNaN(o.Estimate) && _stopTerms != null) o.Terms = new List<ValueTerm>(_stopTerms); // + the rule's step (CloseTerms)
                     }
                     break;
 
@@ -745,6 +791,7 @@ namespace WindBot.Agent
                                 CardEntry cc = _db.Get(o.CardId);
                                 EffectEntry ce = cc != null ? _db.FindEffect(cc, o.Description) : null;
                                 o.Estimate = name != 0 && cc != null && ce != null ? _planner.Interrupts.Value(cc, ce, o.Location == (int)CardLocation.Hand) : -1;
+                                if (name != 0 && cc != null && ce != null) o.Terms = _planner.Interrupts.Terms(cc, ce, o.Location == (int)CardLocation.Hand);
                                 _declareName = name;
                                 if (name != 0) o.Info = (o.Info ?? "") + " | 선언 대상: " + (_db.Get(name) != null ? _db.Get(name).Data.Name : name.ToString());
                                 continue;
@@ -784,6 +831,7 @@ namespace WindBot.Agent
                                 else
                                 {
                                     o.Estimate = _planner.Interrupts.Value(c, e, o.Location == (int)CardLocation.Hand);
+                                    o.Terms = _planner.Interrupts.Terms(c, e, o.Location == (int)CardLocation.Hand);
                                     if (o.Estimate <= 0)
                                     {
                                         // Nothing this effect does is valued yet (Plasma Hole ②'s quick Xyz summon): below passing, not a coin flip.

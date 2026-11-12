@@ -153,6 +153,16 @@ namespace WindBot.Agent.Knowledge
             return w;
         }
 
+        /// <summary>Short content hash of these weights (defaults + file): the version a duel log names (VALUE_LEARNING_PLAN.md step 1).</summary>
+        public string Hash()
+        {
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            {
+                byte[] h = sha.ComputeHash(Encoding.UTF8.GetBytes(ToJson()));
+                return BitConverter.ToString(h, 0, 6).Replace("-", "").ToLowerInvariant();
+            }
+        }
+
         public string ToJson()
         {
             StringBuilder sb = new StringBuilder("{\n");

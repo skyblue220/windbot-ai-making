@@ -710,6 +710,32 @@ namespace WindBot.Agent
                                             .OrderByDescending(x => x.Value).Take(10))
                 sb.AppendLine("  - 첫 행동 " + r.Moves[0].Text + " → " + r.Value.ToString("0.#"));
             if (planner.Exhausted) sb.AppendLine("- (탐색 예산 소진: 일부 경로만 확인)");
+            // Value terms (VALUE_LEARNING_PLAN.md step 1): the best plan's parts, and whether every first move's parts sum to its value.
+            ZoneSnapshot snap = zones.Snapshot();
+            List<Agent.Core.ValueTerm> terms = planner.Explain(snap, best);
+            sb.AppendLine("- 최선 계획 항목: 합 " + terms.Sum(t => t.Value).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                          + " / 계획 값 " + best.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+            foreach (Agent.Core.ValueTerm t in terms)
+            {
+                CardEntry tc = t.CardId != 0 ? planner.Db.Get(t.CardId) : null;
+                sb.AppendLine("  - " + t.Kind + (tc != null ? " " + tc.Data.Name + (t.Effect != 0 ? "(" + t.Effect + ")" : "") : "")
+                              + ": 기본 " + t.Base.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                              + (double.IsNaN(t.Chance) ? "" : " × " + t.Chance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))
+                              + (t.Count != 1 ? " (" + t.Count + "회)" : "") + " → " + t.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                              + (t.Note != null ? " [" + t.Note + "]" : ""));
+            }
+            int matched = 0, residual = 0;
+            double worst = 0;
+            foreach (PlanResult r in byFirst.Concat(new[] { stop }))
+            {
+                List<Agent.Core.ValueTerm> rt = planner.Explain(snap, r);
+                double gap = Math.Abs(rt.Sum(t => t.Value) - r.Value);
+                if (rt.Any(t => t.Kind == "residual")) residual++;
+                else if (gap < 0.01) matched++;
+                worst = Math.Max(worst, Math.Abs(rt.Where(t => t.Kind == "residual").Sum(t => t.Value)));
+            }
+            sb.AppendLine("- 항목 합 검사: 계획 " + (byFirst.Count + 1) + "개 중 항목만으로 맞음 " + matched + "개, 재현 차이 항목 " + residual + "개"
+                          + (residual > 0 ? " (최대 " + worst.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + ")" : ""));
             int replay = Config.GetInt("AgentDbPlanReplay", 0);
             if (replay > 0)
             {
