@@ -72,6 +72,36 @@ namespace WindBot.Agent.Core
             Write(j);
         }
 
+        /// <summary>Predicted against actual per card effect (step 2): kind "interrupts" = our interruptions over the opponent's turn.</summary>
+        public void Outcome(string kind, int turn, int predictedAt, List<OutcomeItem> items)
+        {
+            Json j = Begin("outcome");
+            j.Str("kind", kind).Num("turn", turn).Num("predictedAt", predictedAt);
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < items.Count; ++i)
+            {
+                OutcomeItem o = items[i];
+                if (i > 0) sb.Append(',');
+                Json k = new Json();
+                k.Num("card", o.CardId).Num("effect", o.Effect);
+                k.Raw("predicted", TermsJson(o.Predicted));
+                k.Num("activated", o.Activated).Num("resolved", o.Resolved);
+                if (o.ActivationNegated > 0) k.Num("activationNegated", o.ActivationNegated);
+                if (o.EffectNegated > 0) k.Num("effectNegated", o.EffectNegated);
+                k.Bool("present", o.Present);
+                StringBuilder a = new StringBuilder("[");
+                for (int n = 0; n < o.Answered.Count; ++n)
+                {
+                    if (n > 0) a.Append(',');
+                    a.Append(new Json().Num("player", o.Answered[n][0]).Num("card", o.Answered[n][1]).Num("effect", o.Answered[n][2]).Close());
+                }
+                k.Raw("answered", a.Append(']').ToString());
+                sb.Append(k.Close());
+            }
+            j.Raw("items", sb.Append(']').ToString());
+            Write(j);
+        }
+
         public void CardDb(string tag, string path, int cards)
         {
             Json j = Begin("carddb");

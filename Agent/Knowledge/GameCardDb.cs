@@ -343,6 +343,20 @@ namespace WindBot.Agent.Knowledge
         public int Resolved;
     }
 
+    /// <summary>One chain activation this turn: who, which effect, the chain link it was chained to, and how it ended.</summary>
+    public sealed class ActivationRecord
+    {
+        public int Link;
+        public int Player;
+        public CardEntry Card;
+        public EffectEntry Effect;
+        /// <summary>The link below it (what it answered), null when it started the chain.</summary>
+        public ActivationRecord Answered;
+        public bool ActivationNegated;
+        public bool EffectNegated;
+        public bool Resolved;
+    }
+
     public sealed class GameCardDb
     {
         private readonly LuaConstants _constants;
@@ -365,6 +379,8 @@ namespace WindBot.Agent.Knowledge
         /// <summary>The opponent has Normal Summoned / Set this turn (MSG_SUMMONING by player 1).</summary>
         public bool OpponentNormalSummonUsed;
         public readonly List<string> TurnEvents = new List<string>();
+        /// <summary>Every chain activation this turn, both players, in order (VALUE_LEARNING_PLAN.md step 2: what each answered).</summary>
+        public readonly List<ActivationRecord> Activations = new List<ActivationRecord>();
 
         private sealed class PendingLink
         {
@@ -373,6 +389,7 @@ namespace WindBot.Agent.Knowledge
             public EffectEntry Effect;
             public bool ActivationNegated;
             public bool EffectNegated;
+            public ActivationRecord Record;
         }
 
         public GameCardDb(IEnumerable<string> databases, IEnumerable<string> scriptDirs, LuaConstants constants)
@@ -1632,6 +1649,7 @@ namespace WindBot.Agent.Knowledge
             NormalSummonUsed = false;
             OpponentNormalSummonUsed = false;
             TurnEvents.Clear();
+            Activations.Clear();
             _drawWatch[0].Clear();
             _drawWatch[1].Clear();
         }
@@ -1681,7 +1699,11 @@ namespace WindBot.Agent.Knowledge
         {
             CardEntry card = EnsureCard(cardId, player == 1);
             EffectEntry e = FindEffect(card, description);
-            PendingLink link = new PendingLink { Player = player, Card = card, Effect = e };
+            PendingLink below;
+            ActivationRecord rec = new ActivationRecord { Link = chainLink, Player = player, Card = card, Effect = e,
+                                                          Answered = _chain.TryGetValue(chainLink - 1, out below) ? below.Record : null };
+            Activations.Add(rec);
+            PendingLink link = new PendingLink { Player = player, Card = card, Effect = e, Record = rec };
             _chain[chainLink] = link;
             KeyUsage u = Usage(player, card, e);
             u.Activated++;
@@ -1700,6 +1722,7 @@ namespace WindBot.Agent.Knowledge
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             l.ActivationNegated = true;
+            if (l.Record != null) l.Record.ActivationNegated = true;
             KeyUsage u = Usage(l.Player, l.Card, l.Effect);
             u.ActivationNegated++;
             bool refunded = l.Effect != null && l.Effect.Limit != null && l.Effect.Limit.Oath && u.Used > 0;
@@ -1712,6 +1735,7 @@ namespace WindBot.Agent.Knowledge
             PendingLink l;
             if (!_chain.TryGetValue(chainLink, out l)) return;
             l.EffectNegated = true;
+            if (l.Record != null) l.Record.EffectNegated = true;
             Usage(l.Player, l.Card, l.Effect).EffectNegated++;
             TurnEvents.Add("체인 " + chainLink + ": 효과 무효 (" + Name(l.Card) + ")");
         }
@@ -1727,6 +1751,7 @@ namespace WindBot.Agent.Knowledge
             if (!_chain.TryGetValue(chainLink, out l)) return;
             KeyUsage u = Usage(l.Player, l.Card, l.Effect);
             if (!l.ActivationNegated && !l.EffectNegated) u.Resolved++;
+            if (l.Record != null) l.Record.Resolved = !l.ActivationNegated && !l.EffectNegated;
             if (!l.ActivationNegated && !l.EffectNegated && l.Effect != null && l.Effect.DrawWatch != null)
             {
                 _drawWatch[l.Player].Add(l.Effect.DrawWatch);

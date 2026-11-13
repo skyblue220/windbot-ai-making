@@ -98,6 +98,26 @@ namespace WindBot.Agent.Core
         public string Note;
     }
 
+    /// <summary>
+    /// Prediction against what happened, per card effect (VALUE_LEARNING_PLAN.md step 2). For our interruptions:
+    /// the end-of-turn terms predicted when our turn ended, and the opponent's turn that followed.
+    /// </summary>
+    public sealed class OutcomeItem
+    {
+        public int CardId;
+        public int Effect;
+        /// <summary>The terms predicted for this card effect (several when copies sit in several places); empty when it was not predicted.</summary>
+        public readonly List<ValueTerm> Predicted = new List<ValueTerm>();
+        public int Activated;
+        public int Resolved;
+        public int ActivationNegated;
+        public int EffectNegated;
+        /// <summary>Still where the prediction counted it when the opponent's turn ended (field, spell zone, hand, as material).</summary>
+        public bool Present;
+        /// <summary>For each activation, the chain link it answered: (player, card id, effect index); card 0 when it started the chain.</summary>
+        public readonly List<int[]> Answered = new List<int[]>();
+    }
+
     public sealed class DecisionRequest
     {
         public RequestKind Kind;

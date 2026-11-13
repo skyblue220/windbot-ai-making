@@ -982,6 +982,15 @@ namespace WindBot.Agent.Knowledge
             if (od != 0) terms.Add(new ValueTerm { Kind = "opp_draw", Base = _w.BaseOf("opp.draw_card"), Count = cards, Value = -od });
         }
 
+        /// <summary>The end-of-turn interruption terms of the board as it is now (no moves): the prediction step 2 checks against the opponent's turn.</summary>
+        public List<ValueTerm> EndTerms(ZoneSnapshot z)
+        {
+            St s = FromSnapshot(z, _db);
+            List<ValueTerm> terms = new List<ValueTerm>();
+            EndOfTurn(s, new List<string>(), terms);
+            return terms;
+        }
+
         /// <summary>
         /// The terms of a plan's value (VALUE_LEARNING_PLAN.md step 1): its moves replayed from this state (as WalkHint does),
         /// each step's gain x gamma^depth, then the end state's parts. Their Values sum to the plan's value; a "residual" term

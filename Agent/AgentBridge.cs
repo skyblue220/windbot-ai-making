@@ -185,6 +185,119 @@ namespace WindBot.Agent
             }
         }
 
+        // ---------------------------------------------------------------- outcome records (VALUE_LEARNING_PLAN.md step 2)
+
+        /// <summary>The end-of-turn interruption terms of our last turn's final board, and that turn's number.</summary>
+        private List<ValueTerm> _prediction;
+        private int _predictionTurn;
+
+        /// <summary>Our turn has ended: what the board holds for the opponent's turn, per card effect.</summary>
+        private void PredictInterrupts()
+        {
+            _prediction = null;
+            if (_planner == null) return;
+            try
+            {
+                _prediction = _planner.EndTerms(_zones.Snapshot());
+                _predictionTurn = _db.Turn;
+            }
+            catch (Exception ex) { _log.Error("outcome-predict", ex.ToString()); }
+        }
+
+        /// <summary>
+        /// The opponent's turn has ended: each predicted interruption against what we activated (resolved, negated, the
+        /// chain link it answered) and whether it is still there; our activations nobody predicted come too.
+        /// Logged as an "outcome" event and as a section of the state file.
+        /// </summary>
+        private void CheckInterrupts()
+        {
+            if (_prediction == null || _predictionTurn != _db.Turn - 1) return;
+            try
+            {
+                List<OutcomeItem> items = new List<OutcomeItem>();
+                Func<int, int, OutcomeItem> item = (card, eff) =>
+                {
+                    OutcomeItem o = items.FirstOrDefault(x => x.CardId == card && x.Effect == eff);
+                    if (o == null) { o = new OutcomeItem { CardId = card, Effect = eff }; items.Add(o); }
+                    return o;
+                };
+                foreach (ValueTerm t in _prediction)
+                    if (t.CardId != 0) item(t.CardId, t.Effect).Predicted.Add(t);
+                foreach (ActivationRecord a in _db.Activations)
+                {
+                    if (a.Player != 0 || a.Card == null) continue;
+                    int id = a.Card.Data.Id, eff = a.Effect != null ? a.Effect.Index : 0;
+                    // A GY payoff is predicted per card (effect 0): any effect of that card is its use.
+                    OutcomeItem o = items.FirstOrDefault(x => x.CardId == id && x.Effect == eff)
+                                 ?? items.FirstOrDefault(x => x.CardId == id && x.Effect == 0 && x.Predicted.Count > 0)
+                                 ?? item(id, eff);
+                    o.Activated++;
+                    if (a.Resolved) o.Resolved++;
+                    if (a.ActivationNegated) o.ActivationNegated++;
+                    if (a.EffectNegated) o.EffectNegated++;
+                    ActivationRecord b = a.Answered;
+                    o.Answered.Add(b == null ? new[] { -1, 0, 0 } : new[] { b.Player, b.Card != null ? b.Card.Data.Id : 0, b.Effect != null ? b.Effect.Index : 0 });
+                }
+                ZoneSnapshot z = _zones.Snapshot();
+                foreach (OutcomeItem o in items) o.Present = StillThere(z, o);
+                _log.Outcome("interrupts", _db.Turn, _predictionTurn, items);
+                AppendOutcome(items);
+            }
+            catch (Exception ex) { _log.Error("outcome-check", ex.ToString()); }
+            _prediction = null;
+        }
+
+        /// <summary>Whether the card is still where the prediction counted it (any of our places for an unpredicted one).</summary>
+        private static bool StillThere(ZoneSnapshot z, OutcomeItem o)
+        {
+            int id = o.CardId;
+            bool hand = z.Hand.Contains(id), spell = z.Spells.Contains(id) || z.SetSpells.Contains(id);
+            bool field = z.Monsters.Any(m => m.Key == id), material = z.MonsterMaterials.Any(m => m != null && m.Contains(id));
+            if (o.Predicted.Count == 0) return hand || spell || field || material;
+            foreach (ValueTerm t in o.Predicted)
+            {
+                if (t.Kind == "end_hand" && hand) return true;
+                if ((t.Kind == "end_set" || t.Kind == "end_zone") && spell) return true;
+                if (t.Kind == "end_field" && field) return true;
+                if (t.Kind == "end_payoff" && material) return true;
+            }
+            return false;
+        }
+
+        private void AppendOutcome(List<OutcomeItem> items)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            Func<int, int, string> name = (id, eff) =>
+            {
+                CardEntry c = _db.Get(id);
+                return (c != null ? c.Data.Name : "#" + id) + (eff != 0 ? "(" + eff + ")" : "");
+            };
+            StringBuilder sb = new StringBuilder("### 예측과 실제: 상대 턴에 쓴 우리 방해 (예측: 턴 " + _predictionTurn + " 끝)\n");
+            if (items.Count == 0) sb.Append("- 예측한 방해도, 쓴 방해도 없음\n");
+            foreach (OutcomeItem o in items)
+            {
+                sb.Append("- " + name(o.CardId, o.Effect) + ": ");
+                if (o.Predicted.Count > 0)
+                {
+                    int uses = o.Predicted.Sum(t => t.Count);
+                    double expected = o.Predicted.Where(t => !double.IsNaN(t.Chance)).Sum(t => t.Chance);
+                    sb.Append("예측 " + uses + "회" + (expected > 0 ? "(기대 " + expected.ToString("0.##", inv) + "회)" : "")
+                              + " 값 " + o.Predicted.Sum(t => t.Value).ToString("0.#", inv));
+                }
+                else sb.Append("예측 없음");
+                sb.Append(" → 발동 " + o.Activated + "회");
+                if (o.Activated > 0)
+                {
+                    sb.Append(" (처리 " + o.Resolved + (o.ActivationNegated > 0 ? ", 발동 무효 " + o.ActivationNegated : "")
+                              + (o.EffectNegated > 0 ? ", 효과 무효 " + o.EffectNegated : "") + ")");
+                    sb.Append(", 막으려 한 것: " + String.Join(", ", o.Answered.Select(a => a[1] == 0 ? "(체인 1로 발동)" : (a[0] == 0 ? "자신 " : "상대 ") + name(a[1], a[2])).ToArray()));
+                }
+                sb.Append(o.Present ? " / 끝에 남아 있음" : " / 끝에 없음").Append('\n');
+            }
+            try { System.IO.File.AppendAllText(LogBase + "_state.md", sb.Append('\n').ToString(), new UTF8Encoding(false)); }
+            catch (Exception ex) { _log.Error("state-write", ex.ToString()); }
+        }
+
         /// <summary>One compact section per turn: events, effects used, where our cards are.</summary>
         private void AppendState(string title)
         {
@@ -1263,7 +1376,13 @@ namespace WindBot.Agent
                 }
                 else if (message == GameMessage.NewTurn)
                 {
-                    if (_db.Turn > 0) AppendState("턴 종료");
+                    if (_db.Turn > 0)
+                    {
+                        AppendState("턴 종료");
+                        // _duel.Player is already the new turn's player: the turn that ended was the other one's.
+                        if (_duel.Player == 1) PredictInterrupts();
+                        else CheckInterrupts();
+                    }
                     _db.OnNewTurn(_duel.Turn);
                 }
             }
@@ -1277,6 +1396,7 @@ namespace WindBot.Agent
         {
             _log.Result(result == 2 ? "Draw" : result == 0 ? "Win" : "Lose", _duel.Turn);
             AppendState("듀얼 종료: " + (result == 2 ? "무승부" : result == 0 ? "승리" : "패배"));
+            if (_duel.Player == 1) CheckInterrupts(); // the duel ended on the opponent's turn: what our interruptions did so far
             WriteCardDb();
             _duelFinished = true;
         }
